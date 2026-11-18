@@ -5,14 +5,35 @@ import {
   ChevronRight, 
   AlertTriangle, 
   CheckCircle2, 
-  XCircle,
-  Tag,
-  Loader2,
-  Sliders,
-  Trash2
+  XCircle, 
+  Tag, 
+  Loader2, 
+  Sliders, 
+  Trash2,
+  Banknote,
+  Smartphone,
+  Plus,
+  ChevronDown,
+  ChevronUp,
+  ArrowUpRight
 } from 'lucide-react';
-import { BudgetPeriodType, Category, ViewBudgetPeriodSummary, ViewEnvelopeStatus } from '../types/database';
-import { formatRupiah, DataService, getPeriodEndDate, shiftPeriodStartDate } from '../services/dataService';
+import { 
+  BudgetPeriodType, 
+  Category, 
+  ViewBudgetPeriodSummary, 
+  ViewEnvelopeStatus,
+  Transaction,
+  IncomeBreakdown
+} from '../types/database';
+import { 
+  formatRupiah, 
+  DataService, 
+  getPeriodEndDate, 
+  shiftPeriodStartDate,
+  parseIncomeBreakdown,
+  serializeIncomeBreakdown,
+  parseTransactionNote
+} from '../services/dataService';
 import { format, parseISO } from 'date-fns';
 import { id } from 'date-fns/locale';
 
@@ -23,7 +44,15 @@ interface KantongTabProps {
   summary: ViewBudgetPeriodSummary | null;
   envelopes: ViewEnvelopeStatus[];
   categories: Category[];
+  transactions: Transaction[];
+  onOpenQuickAdd?: (source?: string) => void;
   onRefresh: () => void;
+}
+
+interface FormEMoneyRow {
+  id: string;
+  name: string;
+  amount: string;
 }
 
 export const KantongTab: FC<KantongTabProps> = ({
@@ -33,22 +62,31 @@ export const KantongTab: FC<KantongTabProps> = ({
   summary,
   envelopes,
   categories,
+  transactions,
+  onOpenQuickAdd,
   onRefresh,
 }) => {
-  // Modals
+  // Modals & Accordions
   const [showIncomeModal, setShowIncomeModal] = useState(false);
   const [showCategoryModal, setShowCategoryModal] = useState(false);
   const [showAllocateModal, setShowAllocateModal] = useState(false);
+  const [showEmoneyReport, setShowEmoneyReport] = useState(true);
 
-  // Form states
-  const [incomeInput, setIncomeInput] = useState('');
+  // Form states for Income & Funds breakdown
+  const [cashInput, setCashInput] = useState('');
+  const [emoneyList, setEmoneyList] = useState<FormEMoneyRow[]>([]);
+
+  // Category & Allocation form states
   const [newCatName, setNewCatName] = useState('');
   const [newCatType, setNewCatType] = useState<'EXPENSE' | 'DEBT_PAYMENT' | 'SAVINGS'>('EXPENSE');
-  const [newCatColor, setNewCatColor] = useState('#4f46e5');
+  const [newCatColor, setNewCatColor] = useState('#6366f1');
   const [allocCategoryId, setAllocCategoryId] = useState('');
   const [allocAmount, setAllocAmount] = useState('');
   const [loading, setLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
+
+  // Quick suggestion chips for common e-money / banks
+  const commonEMoneyChips = ['GoPay', 'OVO', 'DANA', 'ShopeePay', 'BCA', 'Bank Jago', 'Mandiri'];
 
   // Period navigation
   const handlePrevPeriod = () => {
@@ -59,17 +97,77 @@ export const KantongTab: FC<KantongTabProps> = ({
     onPeriodStartChange(shiftPeriodStartDate(periodStart, periodType, 1));
   };
 
-  // Submit Income
+  // Open Income modal and populate with current breakdown
+  const handleOpenIncomeModal = () => {
+    const breakdown = parseIncomeBreakdown(summary?.note, summary?.income || 0);
+    setCashInput(breakdown.cash > 0 ? breakdown.cash.toString() : '');
+    if (breakdown.emoney.length > 0) {
+      setEmoneyList(
+        breakdown.emoney.map((e) => ({
+          id: e.id,
+          name: e.name,
+          amount: e.amount > 0 ? e.amount.toString() : '',
+        }))
+      );
+    } else {
+      setEmoneyList([]);
+    }
+    setErrorMsg(null);
+    setShowIncomeModal(true);
+  };
+
+  // Add a new E-Money row
+  const handleAddEmoneyRow = (defaultName = '') => {
+    setEmoneyList((prev) => [
+      ...prev,
+      {
+        id: `em-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
+        name: defaultName,
+        amount: '',
+      },
+    ]);
+  };
+
+  // Remove an E-Money row
+  const handleRemoveEmoneyRow = (id: string) => {
+    setEmoneyList((prev) => prev.filter((item) => item.id !== id));
+  };
+
+  // Update E-Money row
+  const handleUpdateEmoneyRow = (id: string, field: 'name' | 'amount', value: string) => {
+    setEmoneyList((prev) =>
+      prev.map((item) => (item.id === id ? { ...item, [field]: value } : item))
+    );
+  };
+
+  // Calculate live totals for the modal
+  const liveCash = parseFloat(cashInput) || 0;
+  const liveEmoneyTotal = emoneyList.reduce((sum, item) => sum + (parseFloat(item.amount) || 0), 0);
+  const liveGrandTotal = liveCash + liveEmoneyTotal;
+
+  // Submit Income & Funds Breakdown
   const handleSaveIncome = async (e: FormEvent) => {
     e.preventDefault();
-    const income = parseFloat(incomeInput);
-    if (isNaN(income) || income < 0) return;
+    if (liveGrandTotal < 0) return;
 
     setLoading(true);
     try {
-      await DataService.setPeriodIncome(periodStart, periodType, income);
+      const validEmoney = emoneyList
+        .filter((item) => item.name.trim() !== '' && (parseFloat(item.amount) || 0) > 0)
+        .map((item) => ({
+          id: item.id,
+          name: item.name.trim(),
+          amount: parseFloat(item.amount) || 0,
+        }));
+
+      const breakdownData: IncomeBreakdown = {
+        cash: liveCash,
+        emoney: validEmoney,
+      };
+
+      const serializedNote = serializeIncomeBreakdown(breakdownData);
+      await DataService.setPeriodIncome(periodStart, periodType, liveGrandTotal, serializedNote);
       setShowIncomeModal(false);
-      setIncomeInput('');
       onRefresh();
     } catch (err: any) {
       setErrorMsg(err.message || 'Gagal menyimpan pemasukan.');
@@ -161,66 +259,331 @@ export const KantongTab: FC<KantongTabProps> = ({
   const totalSpent = summary?.total_spent || 0;
   const periodStartDate = parseISO(periodStart);
   const periodEndDate = parseISO(summary?.week_end || getPeriodEndDate(periodStart, periodType));
+  const periodEndDateStr = format(periodEndDate, 'yyyy-MM-dd');
   const periodLabel = periodType === 'daily' ? 'Harian' : periodType === 'monthly' ? 'Bulanan' : 'Mingguan';
 
+  // 1. Initial Breakdown from budget note
+  const initialBreakdown = parseIncomeBreakdown(summary?.note, income);
+
+  // 2. Filter transactions in current period
+  const periodTransactions = transactions.filter(
+    (t) => t.date >= periodStart && t.date <= periodEndDateStr
+  );
+
+  // 3. Calculate spent amount per funding source
+  const spentBySource: Record<string, number> = {};
+  periodTransactions
+    .filter((t) => t.type === 'EXPENSE' || t.type === 'DEBT_PAYMENT')
+    .forEach((t) => {
+      const { source } = parseTransactionNote(t.note);
+      const sourceKey = source && source.trim() ? source.trim() : 'Cash';
+      spentBySource[sourceKey] = (spentBySource[sourceKey] || 0) + t.amount;
+    });
+
+  // 4. Calculate Cash remaining
+  const cashSpent = (spentBySource['Cash'] || 0) + (spentBySource['Tunai'] || 0);
+  const cashRemaining = initialBreakdown.cash - cashSpent;
+
+  // 5. Calculate E-Money remaining per account & totals
+  const emoneyAccountsReport = initialBreakdown.emoney.map((account) => {
+    const spent = spentBySource[account.name] || 0;
+    const remaining = account.amount - spent;
+    const percentRemaining = account.amount > 0
+      ? Math.max(0, Math.min(100, Math.round((remaining / account.amount) * 100)))
+      : 0;
+
+    return {
+      ...account,
+      spent,
+      remaining,
+      percentRemaining,
+      isExhausted: remaining <= 0,
+      isLow: remaining > 0 && percentRemaining <= 25,
+    };
+  });
+
+  const totalInitialEmoney = initialBreakdown.emoney.reduce((sum, item) => sum + item.amount, 0);
+  const totalSpentEmoney = emoneyAccountsReport.reduce((sum, item) => sum + item.spent, 0);
+  const totalRemainingEmoney = totalInitialEmoney - totalSpentEmoney;
+
+  // 6. Total remaining active funds across cash and e-money
+  const totalActiveRemaining = cashRemaining + totalRemainingEmoney;
+
   return (
-    <div className="space-y-4">
+    <div className="space-y-4 sm:space-y-6">
       
       {/* Budget Period Selector */}
-      <div className="flex items-center justify-between bg-slate-900 border border-slate-800 rounded-2xl p-2 px-3">
+      <div className="flex items-center justify-between bg-[#09090b] border border-[#222228] rounded-2xl p-2.5 px-4 shadow-sm">
         <button
           onClick={handlePrevPeriod}
-          className="p-1 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition-colors cursor-pointer"
+          className="p-1.5 rounded-xl text-neutral-400 hover:text-white hover:bg-[#18181e] transition-colors cursor-pointer"
+          title="Periode Sebelumnya"
         >
           <ChevronLeft className="w-5 h-5" />
         </button>
         <div className="text-center">
-          <p className="text-xs font-bold text-white">
+          <p className="text-xs sm:text-sm font-bold text-white tracking-wide">
             {periodType === 'monthly'
               ? format(periodStartDate, 'MMMM yyyy', { locale: id })
               : `${periodLabel}: ${format(periodStartDate, 'dd MMM yyyy', { locale: id })}`}
           </p>
-          <p className="text-[10px] text-slate-400">
-            {format(periodStartDate, 'dd MMM yyyy', { locale: id })} s/d {format(periodEndDate, 'dd MMM yyyy', { locale: id })}
+          <p className="text-[10px] sm:text-[11px] text-neutral-400 font-mono mt-0.5">
+            {format(periodStartDate, 'dd MMM yyyy', { locale: id })} — {format(periodEndDate, 'dd MMM yyyy', { locale: id })}
           </p>
         </div>
         <button
           onClick={handleNextPeriod}
-          className="p-1 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition-colors cursor-pointer"
+          className="p-1.5 rounded-xl text-neutral-400 hover:text-white hover:bg-[#18181e] transition-colors cursor-pointer"
+          title="Periode Berikutnya"
         >
           <ChevronRight className="w-5 h-5" />
         </button>
       </div>
 
       {/* Main Budget Card */}
-      <div className="p-4 rounded-3xl bg-gradient-to-br from-indigo-950 via-slate-900 to-slate-900 border border-indigo-500/30 shadow-xl space-y-3">
+      <div className="p-5 sm:p-6 rounded-3xl bg-gradient-to-br from-[#121020] via-[#09090b] to-black border border-indigo-500/20 shadow-2xl space-y-4">
+        
+        {/* Top Header */}
         <div className="flex items-center justify-between">
-          <span className="text-xs font-semibold text-indigo-300">Pemasukan {periodLabel}</span>
+          <div className="flex items-center space-x-2">
+            <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+            <span className="text-xs sm:text-sm font-semibold text-neutral-300">
+              Ringkasan Saldo & Anggaran ({periodLabel})
+            </span>
+          </div>
           <button
-            onClick={() => { setIncomeInput(income.toString()); setShowIncomeModal(true); }}
-            className="text-[11px] font-bold text-indigo-400 hover:text-indigo-300 underline underline-offset-2 cursor-pointer"
+            onClick={handleOpenIncomeModal}
+            className="text-xs font-bold text-indigo-400 hover:text-indigo-300 underline underline-offset-4 cursor-pointer transition-colors"
           >
-            {income > 0 ? 'Ubah Nominal' : '+ Set Pemasukan'}
+            {income > 0 ? 'Ubah Rincian Dana' : '+ Atur Sumber Dana'}
           </button>
         </div>
 
-        <div className="flex items-baseline justify-between">
-          <h2 className="text-2xl font-black text-white">{formatRupiah(income)}</h2>
-          <div className="text-right">
-            <span className={`text-xs font-bold ${unallocatedCash < 0 ? 'text-rose-400' : 'text-emerald-400'}`}>
-              {formatRupiah(unallocatedCash)}
+        {/* HERO BANNER: SISA DANA AKTIF TERSEDIA (PROMINENTLY HIGHLIGHTED) */}
+        <div className="p-4 sm:p-5 rounded-2xl bg-black/80 border border-emerald-500/30 shadow-lg space-y-2">
+          <div className="flex items-center justify-between">
+            <span className="text-xs sm:text-sm font-bold text-neutral-300 flex items-center space-x-1.5">
+              <span>Sisa Uang Tersedia Saat Ini</span>
             </span>
-            <p className="text-[10px] text-slate-400">Sisa Belum Dialokasikan</p>
+            <span className={`text-[10px] sm:text-xs font-bold px-2 py-0.5 rounded-full border ${
+              totalActiveRemaining < 0
+                ? 'bg-rose-500/10 text-rose-400 border-rose-500/20'
+                : totalActiveRemaining === 0
+                ? 'bg-amber-500/10 text-amber-400 border-amber-500/20'
+                : 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20'
+            }`}>
+              {totalActiveRemaining < 0 ? 'DEFISIT' : totalActiveRemaining === 0 ? 'HABIS' : 'DANA AMAN'}
+            </span>
+          </div>
+
+          {/* Big Prominent Remaining Amount */}
+          <div className="flex items-baseline justify-between flex-wrap gap-2">
+            <h2 className={`text-3xl sm:text-4xl lg:text-5xl font-black font-mono tracking-tight ${
+              totalActiveRemaining < 0 ? 'text-rose-400' : 'text-emerald-400'
+            }`}>
+              {formatRupiah(totalActiveRemaining)}
+            </h2>
+          </div>
+
+          {/* Supporting Numbers Row */}
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 pt-2 border-t border-[#1f1f26] text-xs text-neutral-400">
+            <div>
+              <span>Total Awal Dimiliki: </span>
+              <strong className="text-white font-mono">{formatRupiah(income)}</strong>
+            </div>
+            <div>
+              <span>Total Pengeluaran: </span>
+              <strong className="text-rose-400 font-mono">{formatRupiah(totalSpent)}</strong>
+            </div>
+            <div>
+              <span>Belum Dialokasikan: </span>
+              <strong className="text-neutral-200 font-mono">{formatRupiah(unallocatedCash)}</strong>
+            </div>
           </div>
         </div>
 
-        {/* Progress Allocation Bar */}
-        <div className="space-y-1 pt-1">
-          <div className="flex justify-between text-[10px] text-slate-400">
-            <span>Teralokasi: {formatRupiah(totalAllocated)}</span>
-            <span>Terpakai: {formatRupiah(totalSpent)}</span>
+        {/* Breakdown: Cash vs E-Money Remaining Balances */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
+          {/* Cash Status Card */}
+          <div className="p-3.5 bg-black/60 border border-[#222228] hover:border-[#32323e] rounded-2xl flex flex-col justify-between space-y-2.5 transition-colors">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center space-x-2.5">
+                <div className="w-8 h-8 rounded-xl bg-emerald-500/15 border border-emerald-500/20 text-emerald-400 flex items-center justify-center">
+                  <Banknote className="w-4 h-4" />
+                </div>
+                <div>
+                  <span className="text-[11px] text-neutral-400 font-medium">Sisa Uang Cash (Tunai)</span>
+                  <p className={`text-base sm:text-lg font-black font-mono ${cashRemaining < 0 ? 'text-rose-400' : 'text-white'}`}>
+                    {formatRupiah(cashRemaining)}
+                  </p>
+                </div>
+              </div>
+
+              {onOpenQuickAdd && (
+                <button
+                  type="button"
+                  onClick={() => onOpenQuickAdd('Cash')}
+                  className="px-2.5 py-1 text-[11px] font-bold rounded-lg bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-300 border border-emerald-500/20 transition-all cursor-pointer flex items-center space-x-1"
+                  title="Catat pengeluaran tunai"
+                >
+                  <span>Pakai Cash</span>
+                  <ArrowUpRight className="w-3 h-3" />
+                </button>
+              )}
+            </div>
+
+            <div className="flex items-center justify-between text-[10px] text-neutral-500 font-mono pt-1 border-t border-[#1c1c22]">
+              <span>Awal: {formatRupiah(initialBreakdown.cash)}</span>
+              <span>Terpakai: {formatRupiah(cashSpent)}</span>
+            </div>
           </div>
-          <div className="w-full h-2 bg-slate-800 rounded-full overflow-hidden flex">
+
+          {/* E-Money Status Card */}
+          <div className="p-3.5 bg-black/60 border border-[#222228] hover:border-[#32323e] rounded-2xl flex flex-col justify-between space-y-2.5 transition-colors">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center space-x-2.5 min-w-0">
+                <div className="w-8 h-8 rounded-xl bg-indigo-500/15 border border-indigo-500/20 text-indigo-400 flex items-center justify-center flex-shrink-0">
+                  <Smartphone className="w-4 h-4" />
+                </div>
+                <div className="min-w-0">
+                  <div className="flex items-center space-x-1.5">
+                    <span className="text-[11px] text-neutral-400 font-medium">Sisa Uang E-Money</span>
+                    {initialBreakdown.emoney.length > 0 && (
+                      <span className="text-[9px] font-semibold bg-indigo-500/20 text-indigo-300 px-1.5 py-0.2 rounded-md">
+                        {initialBreakdown.emoney.length} akun
+                      </span>
+                    )}
+                  </div>
+                  <p className={`text-base sm:text-lg font-black font-mono truncate ${totalRemainingEmoney < 0 ? 'text-rose-400' : 'text-white'}`}>
+                    {formatRupiah(totalRemainingEmoney)}
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            <div className="flex items-center justify-between text-[10px] text-neutral-500 font-mono pt-1 border-t border-[#1c1c22]">
+              <span>Awal: {formatRupiah(totalInitialEmoney)}</span>
+              <span>Terpakai: {formatRupiah(totalSpentEmoney)}</span>
+            </div>
+          </div>
+        </div>
+
+        {/* ACCORDION / DROPDOWN REPORT: STATUS SEMUA E-MONEY */}
+        <div className="border border-[#222228] rounded-2xl bg-black/40 overflow-hidden">
+          <button
+            type="button"
+            onClick={() => setShowEmoneyReport(!showEmoneyReport)}
+            className="w-full px-4 py-3 flex items-center justify-between text-xs font-bold text-neutral-300 hover:text-white hover:bg-[#141418] transition-colors cursor-pointer"
+          >
+            <div className="flex items-center space-x-2">
+              <Smartphone className="w-4 h-4 text-indigo-400" />
+              <span>Laporan & Sisa Saldo per Akun E-Money ({emoneyAccountsReport.length})</span>
+            </div>
+            <div className="flex items-center space-x-1 text-neutral-400 text-[11px]">
+              <span>{showEmoneyReport ? 'Sembunyikan' : 'Buka Rincian'}</span>
+              {showEmoneyReport ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+            </div>
+          </button>
+
+          {showEmoneyReport && (
+            <div className="p-3 sm:p-4 border-t border-[#222228] space-y-3 bg-[#070709]">
+              {emoneyAccountsReport.length === 0 ? (
+                <div className="py-4 text-center text-xs text-neutral-500">
+                  Belum ada tempat penyimpanan e-money yang dicatat.{' '}
+                  <button
+                    onClick={handleOpenIncomeModal}
+                    className="text-indigo-400 underline underline-offset-2 ml-1 cursor-pointer"
+                  >
+                    Tambah sekarang
+                  </button>
+                </div>
+              ) : (
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  {emoneyAccountsReport.map((account) => {
+                    let badgeColor = 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20';
+                    let badgeText = `SISA ${account.percentRemaining}%`;
+                    let barColor = 'bg-emerald-500';
+
+                    if (account.isExhausted) {
+                      badgeColor = 'bg-rose-500/10 text-rose-400 border-rose-500/20';
+                      badgeText = 'HABIS';
+                      barColor = 'bg-rose-500';
+                    } else if (account.isLow) {
+                      badgeColor = 'bg-amber-500/10 text-amber-400 border-amber-500/20';
+                      badgeText = `HAMPIR HABIS (${account.percentRemaining}%)`;
+                      barColor = 'bg-amber-500';
+                    }
+
+                    return (
+                      <div
+                        key={account.id}
+                        className="p-3.5 bg-black border border-[#27272e] rounded-xl space-y-2.5 shadow-sm"
+                      >
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center space-x-2 min-w-0">
+                            <span className="w-2 h-2 rounded-full bg-indigo-400 flex-shrink-0" />
+                            <span className="text-xs sm:text-sm font-bold text-white truncate">
+                              {account.name}
+                            </span>
+                          </div>
+                          <span className={`text-[9px] font-bold px-2 py-0.5 rounded-md border ${badgeColor}`}>
+                            {badgeText}
+                          </span>
+                        </div>
+
+                        {/* Sisa Saldo Amount */}
+                        <div className="flex items-baseline justify-between">
+                          <div>
+                            <span className="text-[10px] text-neutral-400">Sisa Saldo: </span>
+                            <span className={`text-sm sm:text-base font-black font-mono ${
+                              account.remaining <= 0 ? 'text-rose-400' : 'text-white'
+                            }`}>
+                              {formatRupiah(account.remaining)}
+                            </span>
+                          </div>
+
+                          {onOpenQuickAdd && !account.isExhausted && (
+                            <button
+                              type="button"
+                              onClick={() => onOpenQuickAdd(account.name)}
+                              className="text-[10px] font-bold text-indigo-400 hover:text-indigo-300 flex items-center space-x-0.5 cursor-pointer"
+                              title={`Gunakan saldo ${account.name}`}
+                            >
+                              <span>Gunakan</span>
+                              <ArrowUpRight className="w-3 h-3" />
+                            </button>
+                          )}
+                        </div>
+
+                        {/* Numbers & Progress Bar */}
+                        <div className="space-y-1">
+                          <div className="w-full h-1.5 bg-[#141418] rounded-full overflow-hidden">
+                            <div
+                              className={`h-full ${barColor} transition-all duration-300`}
+                              style={{ width: `${account.percentRemaining}%` }}
+                            />
+                          </div>
+                          <div className="flex justify-between text-[9px] font-mono text-neutral-500">
+                            <span>Awal: {formatRupiah(account.amount)}</span>
+                            <span>Terpakai: {formatRupiah(account.spent)}</span>
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+
+        {/* Progress Allocation Bar */}
+        <div className="space-y-1.5 pt-2 border-t border-[#1f1f26]">
+          <div className="flex justify-between text-[11px] text-neutral-400 font-medium">
+            <span>Teralokasi ke Kantong: <strong className="text-neutral-200">{formatRupiah(totalAllocated)}</strong></span>
+            <span>Terpakai: <strong className="text-neutral-200">{formatRupiah(totalSpent)}</strong></span>
+          </div>
+          <div className="w-full h-2.5 bg-[#141418] rounded-full overflow-hidden flex shadow-inner">
             <div
               className="bg-indigo-500 h-full transition-all duration-300"
               style={{ width: `${income > 0 ? Math.min(100, (totalAllocated / income) * 100) : 0}%` }}
@@ -230,153 +593,295 @@ export const KantongTab: FC<KantongTabProps> = ({
       </div>
 
       {/* Action Buttons */}
-      <div className="flex items-center space-x-2">
+      <div className="flex items-center gap-2.5">
         <button
           onClick={() => setShowAllocateModal(true)}
-          className="flex-1 py-2 px-3 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold shadow-md shadow-indigo-600/20 flex items-center justify-center space-x-1.5 transition-all cursor-pointer"
+          className="flex-1 py-2.5 px-4 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs sm:text-sm font-bold shadow-lg shadow-indigo-600/20 flex items-center justify-center space-x-2 transition-all cursor-pointer active:scale-[0.99]"
         >
-          <Sliders className="w-3.5 h-3.5" />
+          <Sliders className="w-4 h-4" />
           <span>Alokasi Kantong</span>
         </button>
         <button
           onClick={() => { setErrorMsg(null); setShowCategoryModal(true); }}
-          className="py-2 px-3 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold border border-slate-700 flex items-center justify-center space-x-1.5 transition-all cursor-pointer"
+          className="py-2.5 px-4 rounded-xl bg-[#0e0e12] hover:bg-[#16161c] text-neutral-200 text-xs sm:text-sm font-semibold border border-[#222228] flex items-center justify-center space-x-2 transition-all cursor-pointer active:scale-[0.99]"
         >
-          <Tag className="w-3.5 h-3.5" />
-          <span>Kategori</span>
+          <Tag className="w-4 h-4" />
+          <span>Kelola Kategori</span>
         </button>
       </div>
 
-      {/* Envelopes List */}
-      <div className="space-y-2.5">
+      {/* Envelopes List - Responsive Grid */}
+      <div className="space-y-3">
         <div className="flex items-center justify-between px-1">
-          <h3 className="text-xs font-bold text-slate-300 uppercase tracking-wider">
+          <h3 className="text-xs font-bold text-neutral-400 uppercase tracking-wider">
             Kantong Anggaran ({envelopes.length})
           </h3>
         </div>
 
         {envelopes.length === 0 ? (
-          <div className="p-8 text-center border border-dashed border-slate-800 rounded-2xl bg-slate-900/40">
-            <Wallet className="w-8 h-8 text-slate-600 mx-auto mb-2" />
-            <p className="text-xs text-slate-400 font-medium">Belum ada alokasi kantong untuk periode ini.</p>
-            <p className="text-[11px] text-slate-500 mt-0.5">
-              Klik "Alokasi Kantong" untuk membagi pemasukan Anda.
+          <div className="p-8 sm:p-12 text-center border border-dashed border-[#222228] rounded-3xl bg-[#09090b]/50">
+            <Wallet className="w-10 h-10 text-neutral-600 mx-auto mb-3" />
+            <p className="text-xs sm:text-sm text-neutral-300 font-medium">Belum ada alokasi kantong untuk periode ini.</p>
+            <p className="text-[11px] text-neutral-500 mt-1 max-w-sm mx-auto">
+              Klik "Alokasi Kantong" untuk membagi pemasukan Anda ke dalam pos-pos pengeluaran.
             </p>
           </div>
         ) : (
-          envelopes.map((env) => {
-            let statusBadge = (
-              <span className="inline-flex items-center text-[10px] font-bold text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded-full border border-emerald-500/20">
-                <CheckCircle2 className="w-3 h-3 mr-1" />
-                AMAN
-              </span>
-            );
-
-            let barColor = 'bg-emerald-500';
-
-            if (env.status === 'HABIS') {
-              statusBadge = (
-                <span className="inline-flex items-center text-[10px] font-bold text-amber-400 bg-amber-500/10 px-2 py-0.5 rounded-full border border-amber-500/20">
-                  <AlertTriangle className="w-3 h-3 mr-1" />
-                  HABIS
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+            {envelopes.map((env) => {
+              let statusBadge = (
+                <span className="inline-flex items-center text-[10px] font-bold text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded-full border border-emerald-500/20">
+                  <CheckCircle2 className="w-3 h-3 mr-1" />
+                  AMAN
                 </span>
               );
-              barColor = 'bg-amber-500';
-            } else if (env.status === 'OVERBUDGET') {
-              statusBadge = (
-                <span className="inline-flex items-center text-[10px] font-bold text-rose-400 bg-rose-500/10 px-2 py-0.5 rounded-full border border-rose-500/20">
-                  <XCircle className="w-3 h-3 mr-1" />
-                  OVERBUDGET
-                </span>
+
+              let barColor = 'bg-emerald-500';
+
+              if (env.status === 'HABIS') {
+                statusBadge = (
+                  <span className="inline-flex items-center text-[10px] font-bold text-amber-400 bg-amber-500/10 px-2 py-0.5 rounded-full border border-amber-500/20">
+                    <AlertTriangle className="w-3 h-3 mr-1" />
+                    HABIS
+                  </span>
+                );
+                barColor = 'bg-amber-500';
+              } else if (env.status === 'OVERBUDGET') {
+                statusBadge = (
+                  <span className="inline-flex items-center text-[10px] font-bold text-rose-400 bg-rose-500/10 px-2 py-0.5 rounded-full border border-rose-500/20">
+                    <XCircle className="w-3 h-3 mr-1" />
+                    OVERBUDGET
+                  </span>
+                );
+                barColor = 'bg-rose-500';
+              }
+
+              return (
+                <div
+                  key={env.envelope_id}
+                  className="p-4 bg-[#09090b] border border-[#222228] hover:border-[#32323e] rounded-2xl shadow-sm space-y-3 transition-colors flex flex-col justify-between"
+                >
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center space-x-2.5 min-w-0">
+                      <span 
+                        className="w-3 h-3 rounded-full flex-shrink-0 shadow-sm" 
+                        style={{ backgroundColor: env.category_color || '#6366f1' }}
+                      />
+                      <span className="text-xs sm:text-sm font-bold text-white truncate">{env.category_name}</span>
+                    </div>
+                    <div className="flex items-center space-x-1.5 flex-shrink-0">
+                      {statusBadge}
+                      <button
+                        type="button"
+                        onClick={() => handleDeleteAllocation(env.envelope_id, env.category_name)}
+                        disabled={loading}
+                        aria-label={`Hapus alokasi ${env.category_name}`}
+                        title="Hapus alokasi periode ini"
+                        className="p-1 rounded-lg text-neutral-500 hover:text-rose-400 hover:bg-[#18181e] disabled:opacity-50 transition-colors cursor-pointer"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                  </div>
+
+                  <div className="space-y-1">
+                    <div className="flex items-baseline justify-between text-xs">
+                      <div>
+                        <span className="text-[11px] text-neutral-400">Sisa: </span>
+                        <span className={`font-black ${env.remaining < 0 ? 'text-rose-400' : 'text-white'}`}>
+                          {formatRupiah(env.remaining)}
+                        </span>
+                      </div>
+                      <div className="text-[11px] text-neutral-400">
+                        Alokasi: <span className="text-neutral-200 font-semibold">{formatRupiah(env.allocated)}</span>
+                      </div>
+                    </div>
+
+                    <div className="w-full h-2 bg-[#141418] rounded-full overflow-hidden">
+                      <div
+                        className={`${barColor} h-full transition-all duration-300`}
+                        style={{ width: `${Math.min(100, env.spent_percentage)}%` }}
+                      />
+                    </div>
+                  </div>
+                </div>
               );
-              barColor = 'bg-rose-500';
-            }
-
-            return (
-              <div
-                key={env.envelope_id}
-                className="p-3.5 bg-slate-900/90 border border-slate-800 rounded-2xl shadow-sm space-y-2 hover:border-slate-700 transition-colors"
-              >
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center space-x-2">
-                    <span 
-                      className="w-2.5 h-2.5 rounded-full" 
-                      style={{ backgroundColor: env.category_color || '#4f46e5' }}
-                    />
-                    <span className="text-xs font-bold text-white">{env.category_name}</span>
-                  </div>
-                  <div className="flex items-center space-x-1.5">
-                    {statusBadge}
-                    <button
-                      type="button"
-                      onClick={() => handleDeleteAllocation(env.envelope_id, env.category_name)}
-                      disabled={loading}
-                      aria-label={`Hapus alokasi ${env.category_name}`}
-                      title="Hapus alokasi periode ini"
-                      className="p-1 rounded-lg text-slate-500 hover:text-rose-400 hover:bg-slate-800 disabled:opacity-50 transition-colors cursor-pointer"
-                    >
-                      <Trash2 className="w-3.5 h-3.5" />
-                    </button>
-                  </div>
-                </div>
-
-                <div className="flex items-baseline justify-between text-xs">
-                  <div>
-                    <span className="text-[11px] text-slate-400">Sisa: </span>
-                    <span className={`font-black ${env.remaining < 0 ? 'text-rose-400' : 'text-slate-100'}`}>
-                      {formatRupiah(env.remaining)}
-                    </span>
-                  </div>
-                  <div className="text-[11px] text-slate-400">
-                    Alokasi: <span className="text-slate-300 font-semibold">{formatRupiah(env.allocated)}</span>
-                  </div>
-                </div>
-
-                <div className="w-full h-1.5 bg-slate-800 rounded-full overflow-hidden">
-                  <div
-                    className={`${barColor} h-full transition-all duration-300`}
-                    style={{ width: `${Math.min(100, env.spent_percentage)}%` }}
-                  />
-                </div>
-              </div>
-            );
-          })
+            })}
+          </div>
         )}
       </div>
 
-      {/* MODAL: SET INCOME */}
+      {/* MODAL: SET INCOME & FUNDS BREAKDOWN (CASH & E-MONEY) */}
       {showIncomeModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm">
-          <div className="w-full max-w-sm bg-slate-900 border border-slate-800 rounded-3xl p-5 space-y-4 shadow-2xl">
-            <h3 className="text-sm font-bold text-white">Atur Pemasukan Mingguan</h3>
+        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4 bg-black/85 backdrop-blur-sm animate-in fade-in duration-200">
+          <div className="w-full sm:max-w-lg max-h-[90vh] overflow-y-auto bg-[#09090b] border-t sm:border border-[#222228] rounded-t-3xl sm:rounded-3xl p-5 sm:p-6 space-y-5 shadow-2xl">
+            
+            {/* Header */}
+            <div className="border-b border-[#222228] pb-3">
+              <h3 className="text-base sm:text-lg font-bold text-white flex items-center space-x-2">
+                <Wallet className="w-5 h-5 text-indigo-400" />
+                <span>Atur Sumber Dana ({periodLabel})</span>
+              </h3>
+              <p className="text-xs text-neutral-400 mt-1">
+                Catat uang cash dan saldo e-money Anda. Total akumulasi otomatis dihitung sebagai pemasukan periode.
+              </p>
+            </div>
+
             {errorMsg && <p className="text-xs text-rose-400">{errorMsg}</p>}
-            <form onSubmit={handleSaveIncome} className="space-y-3">
-              <div>
-                <label className="block text-[11px] text-slate-400 mb-1">Nominal Pemasukan (Rp)</label>
-                <input
-                  type="number"
-                  value={incomeInput}
-                  onChange={(e) => setIncomeInput(e.target.value)}
-                  placeholder="Misal: 1000000"
-                  autoFocus
-                  required
-                  className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-sm text-white font-bold"
-                />
+
+            <form onSubmit={handleSaveIncome} className="space-y-5">
+              
+              {/* SECTION 1: UANG CASH (TUNAI) */}
+              <div className="p-4 bg-black/60 border border-[#222228] rounded-2xl space-y-2.5">
+                <div className="flex items-center space-x-2 text-emerald-400">
+                  <Banknote className="w-4 h-4" />
+                  <label htmlFor="input-cash" className="text-xs sm:text-sm font-bold text-white">
+                    Total Uang Tunai / Cash
+                  </label>
+                </div>
+                <p className="text-[11px] text-neutral-400">
+                  Uang tunai fisik yang ada di dompet atau brankas Anda.
+                </p>
+                <div className="relative">
+                  <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-neutral-500 font-bold text-sm">Rp</span>
+                  <input
+                    id="input-cash"
+                    type="number"
+                    step="any"
+                    value={cashInput}
+                    onChange={(e) => setCashInput(e.target.value)}
+                    placeholder="Misal: 500000"
+                    autoFocus
+                    className="w-full bg-black border border-[#27272e] rounded-xl pl-11 pr-3.5 py-2.5 text-sm sm:text-base text-white font-mono font-bold focus:outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 transition-all"
+                  />
+                </div>
               </div>
+
+              {/* SECTION 2: E-MONEY & DIGITAL BALANCES */}
+              <div className="p-4 bg-black/60 border border-[#222228] rounded-2xl space-y-3.5">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center space-x-2 text-indigo-400">
+                    <Smartphone className="w-4 h-4" />
+                    <span className="text-xs sm:text-sm font-bold text-white">
+                      Penyimpanan E-Money & Dompet Digital
+                    </span>
+                  </div>
+                  <span className="text-[11px] font-mono text-neutral-400">
+                    Subtotal: <strong className="text-indigo-300">{formatRupiah(liveEmoneyTotal)}</strong>
+                  </span>
+                </div>
+
+                <p className="text-[11px] text-neutral-400">
+                  Tambahkan akun tempat menyimpan saldo digital Anda (GoPay, OVO, Dana, Rekening Bank, dll).
+                </p>
+
+                {/* Quick Add Suggestion Chips */}
+                <div className="flex flex-wrap items-center gap-1.5 pt-1">
+                  <span className="text-[10px] text-neutral-500 font-medium mr-1">Rekomendasi:</span>
+                  {commonEMoneyChips.map((chipName) => (
+                    <button
+                      key={chipName}
+                      type="button"
+                      onClick={() => handleAddEmoneyRow(chipName)}
+                      className="text-[10px] font-semibold bg-[#16161c] hover:bg-indigo-600 hover:text-white border border-[#27272e] text-neutral-300 px-2 py-0.5 rounded-lg transition-all cursor-pointer"
+                    >
+                      + {chipName}
+                    </button>
+                  ))}
+                </div>
+
+                {/* Dynamic List of E-Money Accounts */}
+                {emoneyList.length === 0 ? (
+                  <div className="py-4 text-center border border-dashed border-[#222228] rounded-xl text-neutral-500 text-xs">
+                    Belum ada e-money ditambahkan. Klik tombol di bawah atau pilih chip di atas.
+                  </div>
+                ) : (
+                  <div className="space-y-2.5 max-h-56 overflow-y-auto pr-1">
+                    {emoneyList.map((item) => (
+                      <div
+                        key={item.id}
+                        className="p-2.5 bg-[#09090b] border border-[#27272e] rounded-xl flex items-center gap-2"
+                      >
+                        {/* Keterangan tempat penyimpanan */}
+                        <div className="flex-1">
+                          <input
+                            type="text"
+                            value={item.name}
+                            onChange={(e) => handleUpdateEmoneyRow(item.id, 'name', e.target.value)}
+                            placeholder={`Keterangan (misal: GoPay, BCA)`}
+                            className="w-full bg-black border border-[#222228] rounded-lg px-2.5 py-1.5 text-xs text-white placeholder-neutral-600 focus:outline-none focus:border-indigo-500"
+                            required
+                          />
+                        </div>
+
+                        {/* Nominal */}
+                        <div className="w-32 sm:w-40 relative">
+                          <span className="absolute left-2 top-1/2 -translate-y-1/2 text-neutral-500 text-xs font-bold">Rp</span>
+                          <input
+                            type="number"
+                            step="any"
+                            value={item.amount}
+                            onChange={(e) => handleUpdateEmoneyRow(item.id, 'amount', e.target.value)}
+                            placeholder="0"
+                            className="w-full bg-black border border-[#222228] rounded-lg pl-8 pr-2 py-1.5 text-xs text-white font-mono font-bold focus:outline-none focus:border-indigo-500"
+                            required
+                          />
+                        </div>
+
+                        {/* Delete Button */}
+                        <button
+                          type="button"
+                          onClick={() => handleRemoveEmoneyRow(item.id)}
+                          className="p-1.5 rounded-lg text-neutral-500 hover:text-rose-400 hover:bg-[#18181e] transition-colors cursor-pointer flex-shrink-0"
+                          title="Hapus baris ini"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {/* Add Custom Row Button */}
+                <button
+                  type="button"
+                  onClick={() => handleAddEmoneyRow('')}
+                  className="w-full py-2 px-3 bg-[#141418] hover:bg-[#1c1c24] border border-[#27272e] text-neutral-300 text-xs font-semibold rounded-xl flex items-center justify-center space-x-1.5 transition-colors cursor-pointer"
+                >
+                  <Plus className="w-3.5 h-3.5" />
+                  <span>+ Tambah Tempat Penyimpanan E-Money</span>
+                </button>
+              </div>
+
+              {/* SECTION 3: LIVE ACCUMULATED TOTAL BANNER */}
+              <div className="p-4 bg-gradient-to-r from-indigo-950/40 via-[#0e0e14] to-black border border-indigo-500/30 rounded-2xl space-y-1.5">
+                <div className="flex items-center justify-between text-xs text-neutral-400">
+                  <span>Cash: <strong className="text-emerald-400 font-mono">{formatRupiah(liveCash)}</strong></span>
+                  <span>E-Money: <strong className="text-indigo-400 font-mono">{formatRupiah(liveEmoneyTotal)}</strong></span>
+                </div>
+                <div className="flex items-baseline justify-between pt-1 border-t border-[#222228]">
+                  <span className="text-xs sm:text-sm font-bold text-white">Total Pemasukan / Total Dana:</span>
+                  <span className="text-base sm:text-xl font-black text-white font-mono tracking-tight">
+                    {formatRupiah(liveGrandTotal)}
+                  </span>
+                </div>
+              </div>
+
+              {/* Form Actions */}
               <div className="flex justify-end space-x-2 pt-2">
                 <button
                   type="button"
                   onClick={() => setShowIncomeModal(false)}
-                  className="px-3 py-1.5 text-xs text-slate-400 hover:text-white cursor-pointer"
+                  className="px-4 py-2 text-xs font-semibold text-neutral-400 hover:text-white cursor-pointer transition-colors"
                 >
                   Batal
                 </button>
                 <button
                   type="submit"
                   disabled={loading}
-                  className="px-4 py-1.5 bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold rounded-xl cursor-pointer"
+                  className="px-5 py-2.5 bg-indigo-600 hover:bg-indigo-500 text-white text-xs sm:text-sm font-bold rounded-xl cursor-pointer transition-all shadow-md shadow-indigo-600/20 active:scale-95"
                 >
-                  {loading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : 'Simpan'}
+                  {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : 'Simpan Rincian Dana'}
                 </button>
               </div>
             </form>
@@ -386,32 +891,32 @@ export const KantongTab: FC<KantongTabProps> = ({
 
       {/* MODAL: CREATE CATEGORY */}
       {showCategoryModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm">
-          <div className="w-full max-w-sm max-h-[85vh] overflow-y-auto bg-slate-900 border border-slate-800 rounded-3xl p-5 space-y-4 shadow-2xl">
-            <h3 className="text-sm font-bold text-white">Kelola Kategori</h3>
+        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4 bg-black/85 backdrop-blur-sm animate-in fade-in duration-200">
+          <div className="w-full sm:max-w-md max-h-[85vh] overflow-y-auto bg-[#09090b] border-t sm:border border-[#222228] rounded-t-3xl sm:rounded-3xl p-6 space-y-4 shadow-2xl">
+            <h3 className="text-sm sm:text-base font-bold text-white">Kelola Kategori</h3>
             {errorMsg && (
               <p role="alert" className="text-xs text-rose-400">{errorMsg}</p>
             )}
-            <form onSubmit={handleCreateCategory} className="space-y-3">
-              <p className="text-[11px] font-semibold text-slate-300">Tambah kategori</p>
+            <form onSubmit={handleCreateCategory} className="space-y-3.5">
+              <p className="text-[11px] font-semibold text-neutral-300">Tambah Kategori Baru</p>
               <div>
-                <label className="block text-[11px] text-slate-400 mb-1">Nama Kategori</label>
+                <label className="block text-[11px] text-neutral-400 mb-1">Nama Kategori</label>
                 <input
                   type="text"
                   value={newCatName}
                   onChange={(e) => setNewCatName(e.target.value)}
                   placeholder="Misal: Makan Siang, Bensin"
                   required
-                  className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-xs text-white"
+                  className="w-full bg-black border border-[#27272e] rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 transition-all"
                 />
               </div>
 
               <div>
-                <label className="block text-[11px] text-slate-400 mb-1">Tipe Kategori</label>
+                <label className="block text-[11px] text-neutral-400 mb-1">Tipe Kategori</label>
                 <select
                   value={newCatType}
                   onChange={(e: any) => setNewCatType(e.target.value)}
-                  className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-xs text-white"
+                  className="w-full bg-black border border-[#27272e] rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-indigo-500"
                 >
                   <option value="EXPENSE">Pengeluaran Rutin</option>
                   <option value="DEBT_PAYMENT">Cicilan Utang</option>
@@ -420,7 +925,7 @@ export const KantongTab: FC<KantongTabProps> = ({
               </div>
 
               <div>
-                <label className="block text-[11px] text-slate-400 mb-1">Warna Badge</label>
+                <label className="block text-[11px] text-neutral-400 mb-1">Warna Badge</label>
                 <div className="flex items-center space-x-2">
                   <input
                     type="color"
@@ -428,7 +933,7 @@ export const KantongTab: FC<KantongTabProps> = ({
                     onChange={(e) => setNewCatColor(e.target.value)}
                     className="w-8 h-8 rounded-lg cursor-pointer bg-transparent border-0"
                   />
-                  <span className="text-xs font-mono text-slate-400">{newCatColor}</span>
+                  <span className="text-xs font-mono text-neutral-400">{newCatColor}</span>
                 </div>
               </div>
 
@@ -436,34 +941,34 @@ export const KantongTab: FC<KantongTabProps> = ({
                 <button
                   type="button"
                   onClick={() => setShowCategoryModal(false)}
-                  className="px-3 py-1.5 text-xs text-slate-400 hover:text-white cursor-pointer"
+                  className="px-3.5 py-1.5 text-xs text-neutral-400 hover:text-white cursor-pointer transition-colors"
                 >
                   Batal
                 </button>
                 <button
                   type="submit"
                   disabled={loading}
-                  className="px-4 py-1.5 bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold rounded-xl cursor-pointer"
+                  className="px-4 py-1.5 bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold rounded-xl cursor-pointer transition-all shadow-md shadow-indigo-600/20"
                 >
                   {loading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : 'Simpan Kategori'}
                 </button>
               </div>
             </form>
 
-            <div className="border-t border-slate-800 pt-3 space-y-2">
-              <p className="text-[11px] font-semibold text-slate-300">Kategori aktif</p>
+            <div className="border-t border-[#222228] pt-3 space-y-2">
+              <p className="text-[11px] font-semibold text-neutral-300">Daftar Kategori Aktif</p>
               {categories.length === 0 ? (
-                <p className="text-[11px] text-slate-500">Belum ada kategori.</p>
+                <p className="text-[11px] text-neutral-500">Belum ada kategori tersimpan.</p>
               ) : (
-                <div className="space-y-1.5">
+                <div className="space-y-1.5 max-h-48 overflow-y-auto pr-1">
                   {categories.map((category) => (
-                    <div key={category.id} className="flex items-center justify-between rounded-xl bg-slate-950/70 px-3 py-2">
+                    <div key={category.id} className="flex items-center justify-between rounded-xl bg-black border border-[#1f1f26] px-3 py-2">
                       <div className="flex items-center space-x-2 min-w-0">
                         <span
-                          className="w-2 h-2 rounded-full flex-shrink-0"
-                          style={{ backgroundColor: category.color || '#4f46e5' }}
+                          className="w-2.5 h-2.5 rounded-full flex-shrink-0"
+                          style={{ backgroundColor: category.color || '#6366f1' }}
                         />
-                        <span className="text-xs text-slate-200 truncate">{category.name}</span>
+                        <span className="text-xs text-neutral-200 truncate">{category.name}</span>
                       </div>
                       <button
                         type="button"
@@ -471,7 +976,7 @@ export const KantongTab: FC<KantongTabProps> = ({
                         disabled={loading}
                         aria-label={`Hapus kategori ${category.name}`}
                         title="Hapus kategori dan alokasinya"
-                        className="p-1.5 rounded-lg text-slate-500 hover:text-rose-400 hover:bg-slate-800 disabled:opacity-50 transition-colors cursor-pointer"
+                        className="p-1.5 rounded-lg text-neutral-500 hover:text-rose-400 hover:bg-[#18181e] disabled:opacity-50 transition-colors cursor-pointer"
                       >
                         <Trash2 className="w-3.5 h-3.5" />
                       </button>
@@ -481,11 +986,11 @@ export const KantongTab: FC<KantongTabProps> = ({
               )}
             </div>
 
-            <div className="flex justify-end border-t border-slate-800 pt-3">
+            <div className="flex justify-end border-t border-[#222228] pt-3">
               <button
                 type="button"
                 onClick={() => { setShowCategoryModal(false); setErrorMsg(null); }}
-                className="px-3 py-1.5 text-xs text-slate-400 hover:text-white cursor-pointer"
+                className="px-4 py-1.5 text-xs text-neutral-400 hover:text-white cursor-pointer transition-colors"
               >
                 Tutup
               </button>
@@ -496,22 +1001,22 @@ export const KantongTab: FC<KantongTabProps> = ({
 
       {/* MODAL: ALLOCATE ENVELOPE */}
       {showAllocateModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm">
-          <div className="w-full max-w-sm bg-slate-900 border border-slate-800 rounded-3xl p-5 space-y-4 shadow-2xl">
-            <h3 className="text-sm font-bold text-white">Alokasikan Dana ke Kantong</h3>
-            <form onSubmit={handleSaveAllocation} className="space-y-3">
+        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4 bg-black/85 backdrop-blur-sm animate-in fade-in duration-200">
+          <div className="w-full sm:max-w-md bg-[#09090b] border-t sm:border border-[#222228] rounded-t-3xl sm:rounded-3xl p-6 space-y-4 shadow-2xl">
+            <h3 className="text-sm sm:text-base font-bold text-white">Alokasikan Dana ke Kantong</h3>
+            <form onSubmit={handleSaveAllocation} className="space-y-3.5">
               <div>
-                <label className="block text-[11px] text-slate-400 mb-1">Pilih Kategori</label>
+                <label className="block text-[11px] text-neutral-400 mb-1">Pilih Kategori</label>
                 {categories.length === 0 ? (
                   <p className="text-xs text-amber-400">
-                    Belum ada kategori. Klik tombol "Kategori" terlebih dahulu.
+                    Belum ada kategori. Klik tombol "Kelola Kategori" terlebih dahulu.
                   </p>
                 ) : (
                   <select
                     value={allocCategoryId}
                     onChange={(e) => setAllocCategoryId(e.target.value)}
                     required
-                    className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-xs text-white"
+                    className="w-full bg-black border border-[#27272e] rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-indigo-500"
                   >
                     <option value="">-- Pilih Kategori --</option>
                     {categories.map((c) => (
@@ -524,14 +1029,14 @@ export const KantongTab: FC<KantongTabProps> = ({
               </div>
 
               <div>
-                <label className="block text-[11px] text-slate-400 mb-1">Nominal Alokasi (Rp)</label>
+                <label className="block text-[11px] text-neutral-400 mb-1">Nominal Alokasi (Rp)</label>
                 <input
                   type="number"
                   value={allocAmount}
                   onChange={(e) => setAllocAmount(e.target.value)}
                   placeholder="Misal: 250000"
                   required
-                  className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-xs text-white font-bold"
+                  className="w-full bg-black border border-[#27272e] rounded-xl px-3 py-2 text-xs text-white font-bold focus:outline-none focus:border-indigo-500"
                 />
               </div>
 
@@ -539,14 +1044,14 @@ export const KantongTab: FC<KantongTabProps> = ({
                 <button
                   type="button"
                   onClick={() => setShowAllocateModal(false)}
-                  className="px-3 py-1.5 text-xs text-slate-400 hover:text-white cursor-pointer"
+                  className="px-3.5 py-1.5 text-xs text-neutral-400 hover:text-white cursor-pointer transition-colors"
                 >
                   Batal
                 </button>
                 <button
                   type="submit"
                   disabled={loading || categories.length === 0}
-                  className="px-4 py-1.5 bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold rounded-xl cursor-pointer"
+                  className="px-4 py-1.5 bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold rounded-xl cursor-pointer transition-all shadow-md shadow-indigo-600/20"
                 >
                   {loading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : 'Terapkan'}
                 </button>

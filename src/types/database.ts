@@ -151,3 +151,14 @@ export interface ViewDebtTargetProgress {
   progress_percentage: number;
   created_at: string;
 }
+
+export interface EMoneyItem {
+  id: string;
+  name: string;
+  amount: number;
+}
+
+export interface IncomeBreakdown {
+  cash: number;
+  emoney: EMoneyItem[];
+}

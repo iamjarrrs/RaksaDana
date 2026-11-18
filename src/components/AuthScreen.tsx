@@ -1,6 +1,6 @@
 import { useState, type FC, type FormEvent } from 'react';
 import { useAuth } from '../contexts/AuthContext';
-import { Lock, Mail, ArrowRight, ShieldCheck, AlertCircle, Loader2 } from 'lucide-react';
+import { Lock, Mail, ArrowRight, ShieldCheck, AlertCircle, Loader2, Wallet } from 'lucide-react';
 
 export const AuthScreen: FC = () => {
   const { signInWithEmail, signUpWithEmail } = useAuth();
@@ -49,27 +49,33 @@ export const AuthScreen: FC = () => {
   };
 
   return (
-    <div className="flex justify-center min-h-screen bg-slate-950 text-slate-100">
-      <div className="w-full max-w-md min-h-screen flex flex-col justify-between p-6 bg-slate-900 border-x border-slate-800 shadow-2xl">
+    <div className="flex items-center justify-center min-h-screen bg-black text-neutral-100 p-4 sm:p-6 lg:p-8 relative overflow-hidden">
+      {/* Background subtle pitch glow */}
+      <div className="absolute top-1/4 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[350px] sm:w-[500px] h-[350px] sm:h-[500px] bg-indigo-900/15 rounded-full blur-3xl pointer-events-none" />
+
+      <div className="w-full max-w-md bg-[#09090b] border border-[#222228] rounded-3xl p-6 sm:p-8 shadow-2xl relative z-10 flex flex-col justify-between">
         
         {/* Top Branding */}
-        <div className="pt-8">
-          <h1 className="text-2xl font-black tracking-tight text-white">RaksaDana</h1>
-          <p className="text-sm text-slate-400 mt-1 leading-relaxed">
-            Atur anggaran mingguan dengan sistem kantong yang fleksibel, pantau setiap pengeluaran, dan wujudkan tujuan finansial Anda.
+        <div className="text-center sm:text-left">
+          <div className="inline-flex items-center justify-center w-12 h-12 rounded-2xl bg-indigo-600/10 border border-indigo-500/20 text-indigo-400 mb-4 shadow-inner">
+            <Wallet className="w-6 h-6" />
+          </div>
+          <h1 className="text-2xl sm:text-3xl font-black tracking-tight text-white">RaksaDana</h1>
+          <p className="text-xs sm:text-sm text-neutral-400 mt-2 leading-relaxed">
+            Atur anggaran dengan sistem kantong yang fleksibel, pantau setiap mutasi, dan wujudkan stabilitas finansial Anda.
           </p>
         </div>
 
         {/* Auth Form Box */}
-        <div className="my-auto py-6">
-          <div className="bg-slate-800/80 border border-slate-700/80 rounded-3xl p-6 shadow-xl backdrop-blur-sm">
+        <div className="py-6">
+          <div className="bg-[#0e0e12] border border-[#222228] rounded-2xl p-5 sm:p-6 shadow-xl">
             {/* Tab Switcher */}
-            <div className="grid grid-cols-2 p-1 bg-slate-900/80 rounded-2xl mb-6">
+            <div className="grid grid-cols-2 p-1 bg-black border border-[#222228] rounded-xl mb-6">
               <button
                 type="button"
                 onClick={() => { setIsSignUp(false); setErrorMsg(null); setSuccessMsg(null); }}
-                className={`py-2 text-xs font-semibold rounded-xl transition-all cursor-pointer ${
-                  !isSignUp ? 'bg-indigo-600 text-white shadow-sm' : 'text-slate-400 hover:text-slate-200'
+                className={`py-2 text-xs font-semibold rounded-lg transition-all cursor-pointer ${
+                  !isSignUp ? 'bg-indigo-600 text-white shadow-sm font-bold' : 'text-neutral-400 hover:text-white'
                 }`}
               >
                 Masuk
@@ -77,8 +83,8 @@ export const AuthScreen: FC = () => {
               <button
                 type="button"
                 onClick={() => { setIsSignUp(true); setErrorMsg(null); setSuccessMsg(null); }}
-                className={`py-2 text-xs font-semibold rounded-xl transition-all cursor-pointer ${
-                  isSignUp ? 'bg-indigo-600 text-white shadow-sm' : 'text-slate-400 hover:text-slate-200'
+                className={`py-2 text-xs font-semibold rounded-lg transition-all cursor-pointer ${
+                  isSignUp ? 'bg-indigo-600 text-white shadow-sm font-bold' : 'text-neutral-400 hover:text-white'
                 }`}
               >
                 Daftar Akun Baru
@@ -101,31 +107,31 @@ export const AuthScreen: FC = () => {
 
             <form onSubmit={handleSubmit} className="space-y-4">
               <div>
-                <label className="block text-xs font-medium text-slate-300 mb-1.5">Alamat Email</label>
+                <label className="block text-xs font-medium text-neutral-300 mb-1.5">Alamat Email</label>
                 <div className="relative">
-                  <Mail className="w-4 h-4 text-slate-500 absolute left-3.5 top-1/2 -translate-y-1/2" />
+                  <Mail className="w-4 h-4 text-neutral-500 absolute left-3.5 top-1/2 -translate-y-1/2" />
                   <input
                     type="email"
                     value={email}
                     onChange={(e) => setEmail(e.target.value)}
                     placeholder="nama@email.com"
                     required
-                    className="w-full bg-slate-900 border border-slate-700 rounded-xl pl-10 pr-3 py-2.5 text-sm text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition-all"
+                    className="w-full bg-black border border-[#27272e] rounded-xl pl-10 pr-3 py-2.5 text-sm text-white placeholder-neutral-500 focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 transition-all"
                   />
                 </div>
               </div>
 
               <div>
-                <label className="block text-xs font-medium text-slate-300 mb-1.5">Kata Sandi</label>
+                <label className="block text-xs font-medium text-neutral-300 mb-1.5">Kata Sandi</label>
                 <div className="relative">
-                  <Lock className="w-4 h-4 text-slate-500 absolute left-3.5 top-1/2 -translate-y-1/2" />
+                  <Lock className="w-4 h-4 text-neutral-500 absolute left-3.5 top-1/2 -translate-y-1/2" />
                   <input
                     type="password"
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
                     placeholder="Minimal 6 karakter"
                     required
-                    className="w-full bg-slate-900 border border-slate-700 rounded-xl pl-10 pr-3 py-2.5 text-sm text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition-all"
+                    className="w-full bg-black border border-[#27272e] rounded-xl pl-10 pr-3 py-2.5 text-sm text-white placeholder-neutral-500 focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 transition-all"
                   />
                 </div>
               </div>
@@ -133,7 +139,7 @@ export const AuthScreen: FC = () => {
               <button
                 type="submit"
                 disabled={loading}
-                className="w-full mt-2 py-3 px-4 bg-indigo-600 hover:bg-indigo-500 active:scale-[0.98] disabled:opacity-50 text-white font-semibold text-sm rounded-xl shadow-lg shadow-indigo-600/30 flex items-center justify-center transition-all cursor-pointer"
+                className="w-full mt-2 py-3 px-4 bg-indigo-600 hover:bg-indigo-500 active:scale-[0.98] disabled:opacity-50 text-white font-semibold text-sm rounded-xl shadow-lg shadow-indigo-600/20 flex items-center justify-center transition-all cursor-pointer"
               >
                 {loading ? (
                   <Loader2 className="w-4 h-4 animate-spin" />
@@ -149,7 +155,7 @@ export const AuthScreen: FC = () => {
         </div>
 
         {/* Footer */}
-        <div className="text-center pb-4 text-xs text-slate-500">
+        <div className="text-center pt-2 text-xs text-neutral-500 font-medium">
           Copyright &copy; 2026 J4RZZZ. All rights reserved.
         </div>
 

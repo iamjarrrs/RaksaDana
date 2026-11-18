@@ -8,7 +8,8 @@ import {
   ViewEnvelopeStatus,
   ViewBudgetPeriodSummary,
   ViewDebtSummary,
-  ViewDebtTargetProgress
+  ViewDebtTargetProgress,
+  IncomeBreakdown
 } from '../types/database';
 import { supabase } from '../lib/supabase';
 import {
@@ -70,6 +71,76 @@ export const formatRupiah = (amount: number): string => {
 // ==============================================================================
 // PURE SUPABASE DATA SERVICE (ZERO HARDCODED DATA, PRODUCTION READY)
 // ==============================================================================
+export const parseIncomeBreakdown = (note: string | null | undefined, totalIncome: number): IncomeBreakdown => {
+  if (note) {
+    try {
+      const parsed = JSON.parse(note);
+      if (parsed && typeof parsed === 'object') {
+        const cash = typeof parsed.cash === 'number' ? parsed.cash : (parseFloat(parsed.cash) || 0);
+        const emoney = Array.isArray(parsed.emoney)
+          ? parsed.emoney.map((item: any, idx: number) => ({
+              id: item.id || `emoney-${idx}-${Date.now()}`,
+              name: typeof item.name === 'string' && item.name.trim() ? item.name.trim() : `E-Money ${idx + 1}`,
+              amount: typeof item.amount === 'number' ? item.amount : (parseFloat(item.amount) || 0),
+            }))
+          : [];
+        return { cash, emoney };
+      }
+    } catch {
+      // note is not JSON
+    }
+  }
+
+  return {
+    cash: totalIncome || 0,
+    emoney: [],
+  };
+};
+
+export const serializeIncomeBreakdown = (breakdown: IncomeBreakdown): string => {
+  return JSON.stringify({
+    version: 1,
+    cash: Math.max(0, breakdown.cash),
+    emoney: breakdown.emoney.map(item => ({
+      id: item.id,
+      name: item.name.trim(),
+      amount: Math.max(0, item.amount),
+    })),
+  });
+};
+
+export interface ParsedTransactionNote {
+  source: string | null;
+  note: string;
+}
+
+export const parseTransactionNote = (rawNote: string | null | undefined): ParsedTransactionNote => {
+  if (!rawNote) return { source: null, note: '' };
+
+  const trimmed = rawNote.trim();
+  const bracketMatch = trimmed.match(/^\[(.*?)\](?:\s*(.*))?$/s);
+  if (bracketMatch) {
+    return {
+      source: bracketMatch[1].trim(),
+      note: (bracketMatch[2] || '').trim(),
+    };
+  }
+
+  return { source: null, note: trimmed };
+};
+
+export const formatTransactionNote = (
+  source: string | null | undefined,
+  userNote: string | null | undefined
+): string | null => {
+  const cleanNote = (userNote || '').trim();
+  const cleanSource = (source || '').trim();
+  if (cleanSource) {
+    return cleanNote ? `[${cleanSource}] ${cleanNote}` : `[${cleanSource}]`;
+  }
+  return cleanNote || null;
+};
+
 export class DataService {
 
   static async getBudgetPeriodType(): Promise<BudgetPeriodType> {

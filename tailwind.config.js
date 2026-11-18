@@ -4,9 +4,19 @@ export default {
     "./index.html",
     "./src/**/*.{js,ts,jsx,tsx}",
   ],
+  darkMode: 'class',
   theme: {
     extend: {
       colors: {
+        dark: {
+          bg: '#000000',
+          surface: '#09090b',
+          card: '#0e0e11',
+          'card-hover': '#15151a',
+          elevated: '#18181e',
+          border: '#222228',
+          'border-subtle': '#18181c',
+        },
         brand: {
           50: '#eef2ff',
           100: '#e0e7ff',
