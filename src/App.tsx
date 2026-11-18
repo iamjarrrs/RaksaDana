@@ -18,6 +18,7 @@ import {
   ShieldAlert
 } from 'lucide-react';
 import { useAuth } from './contexts/AuthContext';
+import { useConfirm } from './contexts/ConfirmContext';
 import { AuthScreen } from './components/AuthScreen';
 import { KantongTab } from './components/KantongTab';
 import { LedgerTab } from './components/LedgerTab';
@@ -37,6 +38,7 @@ import {
 
 export const App: FC = () => {
   const { user, loading: authLoading, signOut, deleteAccount } = useAuth();
+  const confirm = useConfirm();
 
   // Navigation
   const [activeTab, setActiveTab] = useState<'kantong' | 'statistik' | 'ledger' | 'utang' | 'settings'>('kantong');
@@ -132,7 +134,15 @@ export const App: FC = () => {
 
   // Starter categories seeder
   const handleSeedStarterCategories = async () => {
-    if (!window.confirm('Buat 5 kategori awal (Makan, Bensin, Kebutuhan, Cicilan, Tabungan)?')) return;
+    const confirmed = await confirm({
+      title: 'Inisialisasi Kategori Awal',
+      message: 'Buat 5 kategori awal bawaan (Makan, Bensin, Kebutuhan, Cicilan, Tabungan)? Anda tetap bisa mengubah atau menghapusnya kapan saja.',
+      confirmText: 'Buat Kategori',
+      cancelText: 'Batal',
+      variant: 'info',
+    });
+    if (!confirmed) return;
+
     try {
       setLoadingData(true);
       await Promise.all([
@@ -169,9 +179,14 @@ export const App: FC = () => {
   };
 
   const handleResetBudgetPeriod = async () => {
-    if (!window.confirm(
-      `Reset anggaran periode ${currentPeriodStart}? Pemasukan anggaran dan alokasi kantong periode ini akan dihapus, tetapi transaksi tetap tersimpan.`
-    )) return;
+    const confirmed = await confirm({
+      title: 'Reset Anggaran Periode',
+      message: `Reset anggaran periode ${currentPeriodStart}? Pemasukan anggaran dan alokasi kantong periode ini akan dihapus, tetapi riwayat transaksi tetap tersimpan dengan aman.`,
+      confirmText: 'Ya, Reset',
+      cancelText: 'Batal',
+      variant: 'warning',
+    });
+    if (!confirmed) return;
 
     setDataActionLoading(true);
     try {

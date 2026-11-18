@@ -1,4 +1,5 @@
 import { useState, type FC, type FormEvent } from 'react';
+import { createPortal } from 'react-dom';
 import { 
   Wallet, 
   ChevronLeft, 
@@ -15,7 +16,10 @@ import {
   Plus,
   ChevronDown,
   ChevronUp,
-  ArrowUpRight
+  ArrowUpRight,
+  PiggyBank,
+  Sparkles,
+  ArrowDownLeft
 } from 'lucide-react';
 import { 
   BudgetPeriodType, 
@@ -34,6 +38,7 @@ import {
   serializeIncomeBreakdown,
   parseTransactionNote
 } from '../services/dataService';
+import { useConfirm } from '../contexts/ConfirmContext';
 import { format, parseISO } from 'date-fns';
 import { id } from 'date-fns/locale';
 
@@ -66,11 +71,25 @@ export const KantongTab: FC<KantongTabProps> = ({
   onOpenQuickAdd,
   onRefresh,
 }) => {
+  const confirm = useConfirm();
+
   // Modals & Accordions
   const [showIncomeModal, setShowIncomeModal] = useState(false);
   const [showCategoryModal, setShowCategoryModal] = useState(false);
   const [showAllocateModal, setShowAllocateModal] = useState(false);
   const [showEmoneyReport, setShowEmoneyReport] = useState(true);
+
+  // Celengan (Piggy Bank / Uang Sisa) Modal & Form states
+  const [showDepositModal, setShowDepositModal] = useState(false);
+  const [showWithdrawModal, setShowWithdrawModal] = useState(false);
+  const [showCelenganHistory, setShowCelenganHistory] = useState(false);
+  const [depositAmountStr, setDepositAmountStr] = useState('');
+  const [depositSource, setDepositSource] = useState('Cash');
+  const [depositNote, setDepositNote] = useState('');
+  const [withdrawAmountStr, setWithdrawAmountStr] = useState('');
+  const [withdrawSource, setWithdrawSource] = useState('Cash');
+  const [withdrawNote, setWithdrawNote] = useState('');
+  const [celenganActionLoading, setCelenganActionLoading] = useState(false);
 
   // Form states for Income & Funds breakdown
   const [cashInput, setCashInput] = useState('');
@@ -195,9 +214,14 @@ export const KantongTab: FC<KantongTabProps> = ({
   };
 
   const handleDeleteCategory = async (category: Category) => {
-    if (!window.confirm(
-      `Hapus kategori "${category.name}"? Alokasinya di semua periode akan dihapus. Riwayat transaksi tetap ada, tetapi menjadi tanpa kategori.`
-    )) return;
+    const confirmed = await confirm({
+      title: 'Hapus Kategori',
+      message: `Hapus kategori "${category.name}"? Alokasinya di semua periode akan dihapus. Riwayat transaksi tetap ada, tetapi menjadi tanpa kategori.`,
+      confirmText: 'Ya, Hapus',
+      cancelText: 'Batal',
+      variant: 'danger',
+    });
+    if (!confirmed) return;
 
     setLoading(true);
     try {
@@ -212,9 +236,14 @@ export const KantongTab: FC<KantongTabProps> = ({
   };
 
   const handleDeleteAllocation = async (envelopeId: string, categoryName: string) => {
-    if (!window.confirm(
-      `Hapus alokasi "${categoryName}" untuk periode ini? Riwayat transaksi tidak akan dihapus.`
-    )) return;
+    const confirmed = await confirm({
+      title: 'Hapus Alokasi Kantong',
+      message: `Hapus alokasi untuk kategori "${categoryName}" pada periode ini? Riwayat transaksi pengeluaran tetap aman.`,
+      confirmText: 'Ya, Hapus',
+      cancelText: 'Batal',
+      variant: 'danger',
+    });
+    if (!confirmed) return;
 
     setLoading(true);
     try {
@@ -222,7 +251,7 @@ export const KantongTab: FC<KantongTabProps> = ({
       onRefresh();
     } catch (err) {
       console.error(err);
-      window.alert(err instanceof Error ? err.message : 'Gagal menghapus alokasi kantong.');
+      setErrorMsg(err instanceof Error ? err.message : 'Gagal menghapus alokasi kantong.');
     } finally {
       setLoading(false);
     }
@@ -308,6 +337,93 @@ export const KantongTab: FC<KantongTabProps> = ({
 
   // 6. Total remaining active funds across cash and e-money
   const totalActiveRemaining = cashRemaining + totalRemainingEmoney;
+  const emoneyRemainingMap = Object.fromEntries(
+    emoneyAccountsReport.map((acc) => [acc.name, acc.remaining])
+  );
+
+  // Celengan Category & Balance Calculation
+  const celenganCategory = categories.find(
+    (c) => c.type === 'SAVINGS' || c.name.toLowerCase() === 'celengan'
+  );
+  const celenganData = DataService.calculateCelenganBalance(transactions, celenganCategory?.id);
+  const celenganTotal = celenganData.total;
+  const availableSourceList = Array.from(new Set(['Cash', ...initialBreakdown.emoney.map((e) => e.name)]));
+
+  const handleOpenDepositModal = (prefillAmount?: number) => {
+    if (prefillAmount && prefillAmount > 0) {
+      setDepositAmountStr(prefillAmount.toString());
+    } else {
+      setDepositAmountStr('');
+    }
+    setDepositNote('Tabung sisa uang');
+    setDepositSource(availableSourceList[0] || 'Cash');
+    setErrorMsg(null);
+    setShowDepositModal(true);
+  };
+
+  const handleOpenWithdrawModal = () => {
+    setWithdrawAmountStr('');
+    setWithdrawNote('Tarik saldo celengan');
+    setWithdrawSource(availableSourceList[0] || 'Cash');
+    setErrorMsg(null);
+    setShowWithdrawModal(true);
+  };
+
+  const handleSaveDeposit = async (e: FormEvent) => {
+    e.preventDefault();
+    const amount = parseFloat(depositAmountStr);
+    if (isNaN(amount) || amount <= 0) {
+      setErrorMsg('Masukkan nominal tabungan yang valid.');
+      return;
+    }
+
+    setCelenganActionLoading(true);
+    try {
+      await DataService.depositToCelengan({
+        amount,
+        source: depositSource,
+        note: depositNote.trim() || 'Tabung sisa uang ke celengan',
+      });
+      setShowDepositModal(false);
+      setDepositAmountStr('');
+      setDepositNote('');
+      onRefresh();
+    } catch (err: any) {
+      setErrorMsg(err.message || 'Gagal mengisi celengan.');
+    } finally {
+      setCelenganActionLoading(false);
+    }
+  };
+
+  const handleSaveWithdraw = async (e: FormEvent) => {
+    e.preventDefault();
+    const amount = parseFloat(withdrawAmountStr);
+    if (isNaN(amount) || amount <= 0) {
+      setErrorMsg('Masukkan nominal penarikan yang valid.');
+      return;
+    }
+    if (amount > celenganTotal) {
+      setErrorMsg(`Saldo celengan tidak mencukupi (Maksimal ${formatRupiah(celenganTotal)}).`);
+      return;
+    }
+
+    setCelenganActionLoading(true);
+    try {
+      await DataService.withdrawFromCelengan({
+        amount,
+        targetSource: withdrawSource,
+        note: withdrawNote.trim() || `Tarik saldo celengan ke ${withdrawSource}`,
+      });
+      setShowWithdrawModal(false);
+      setWithdrawAmountStr('');
+      setWithdrawNote('');
+      onRefresh();
+    } catch (err: any) {
+      setErrorMsg(err.message || 'Gagal menarik saldo celengan.');
+    } finally {
+      setCelenganActionLoading(false);
+    }
+  };
 
   return (
     <div className="space-y-4 sm:space-y-6">
@@ -383,6 +499,18 @@ export const KantongTab: FC<KantongTabProps> = ({
             }`}>
               {formatRupiah(totalActiveRemaining)}
             </h2>
+
+            {totalActiveRemaining > 0 && (
+              <button
+                type="button"
+                onClick={() => handleOpenDepositModal(totalActiveRemaining)}
+                className="px-3 py-1.5 rounded-xl bg-emerald-500/15 hover:bg-emerald-500/25 border border-emerald-500/30 text-emerald-300 text-xs font-bold flex items-center space-x-1.5 transition-all cursor-pointer active:scale-95"
+                title="Masukkan semua sisa uang ke celengan"
+              >
+                <PiggyBank className="w-3.5 h-3.5 text-emerald-400" />
+                <span>Tabung Sisa ke Celengan</span>
+              </button>
+            )}
           </div>
 
           {/* Supporting Numbers Row */}
@@ -592,6 +720,127 @@ export const KantongTab: FC<KantongTabProps> = ({
         </div>
       </div>
 
+      {/* KARTU CELENGAN DIGITAL (UANG SISA) */}
+      <div className="p-4 sm:p-5 rounded-3xl bg-gradient-to-br from-[#07130e] via-[#090e0c] to-[#070709] border border-emerald-500/25 shadow-xl space-y-3.5 relative overflow-hidden">
+        {/* Subtle background glow */}
+        <div className="absolute -top-12 -right-12 w-36 h-36 bg-emerald-500/10 rounded-full blur-2xl pointer-events-none" />
+
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 relative z-10">
+          <div className="flex items-center space-x-3">
+            <div className="w-10 h-10 rounded-2xl bg-emerald-500/15 border border-emerald-500/30 text-emerald-400 flex items-center justify-center flex-shrink-0 shadow-inner">
+              <PiggyBank className="w-5 h-5" />
+            </div>
+            <div>
+              <div className="flex items-center space-x-2">
+                <h3 className="text-sm sm:text-base font-bold text-white tracking-tight">Celengan Sisa Uang</h3>
+                <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-500/15 text-emerald-400 border border-emerald-500/30">
+                  Fleksibel
+                </span>
+              </div>
+              <p className="text-[11px] text-neutral-400 mt-0.5">
+                Bebas isi berapa saja dari sisa uang Anda — boleh semua atau sebagian
+              </p>
+            </div>
+          </div>
+
+          {/* Action Buttons */}
+          <div className="flex items-center space-x-2 self-start sm:self-auto">
+            <button
+              type="button"
+              onClick={() => handleOpenDepositModal()}
+              className="px-3.5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 active:scale-95 text-white text-xs font-bold shadow-lg shadow-emerald-600/20 flex items-center space-x-1.5 transition-all cursor-pointer"
+            >
+              <Plus className="w-3.5 h-3.5" />
+              <span>Isi Celengan</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={handleOpenWithdrawModal}
+              disabled={celenganTotal <= 0}
+              className="px-3 py-2 rounded-xl bg-black/60 hover:bg-[#15151a] disabled:opacity-40 border border-[#27272e] text-neutral-300 hover:text-white text-xs font-semibold flex items-center space-x-1.5 transition-all cursor-pointer"
+              title={celenganTotal <= 0 ? 'Belum ada saldo celengan untuk ditarik' : 'Tarik saldo celengan'}
+            >
+              <ArrowDownLeft className="w-3.5 h-3.5 text-neutral-400" />
+              <span>Tarik</span>
+            </button>
+          </div>
+        </div>
+
+        {/* Celengan Accumulated Total & Quick Deposit Button */}
+        <div className="flex flex-col sm:flex-row sm:items-baseline justify-between pt-2.5 border-t border-[#1a2620] gap-2 relative z-10">
+          <div>
+            <span className="text-[11px] text-neutral-400 block mb-0.5">Total Saldo Terkumpul di Celengan</span>
+            <p className="text-2xl sm:text-3xl font-black font-mono text-emerald-400 tracking-tight">
+              {formatRupiah(celenganTotal)}
+            </p>
+          </div>
+
+          {totalActiveRemaining > 0 && (
+            <button
+              type="button"
+              onClick={() => handleOpenDepositModal(totalActiveRemaining)}
+              className="self-start sm:self-auto px-3 py-1.5 rounded-xl bg-emerald-500/10 hover:bg-emerald-500/20 border border-emerald-500/30 text-emerald-300 text-xs font-bold flex items-center space-x-1.5 transition-all cursor-pointer active:scale-95"
+            >
+              <Sparkles className="w-3.5 h-3.5 text-emerald-400 animate-pulse" />
+              <span>Tabung Semua Sisa ({formatRupiah(totalActiveRemaining)})</span>
+            </button>
+          )}
+        </div>
+
+        {/* Toggle Riwayat Mutasi Celengan */}
+        {(celenganData.deposits.length > 0 || celenganData.withdrawals.length > 0) && (
+          <div className="pt-2 border-t border-[#1a2620] relative z-10">
+            <button
+              type="button"
+              onClick={() => setShowCelenganHistory(!showCelenganHistory)}
+              className="text-xs text-neutral-400 hover:text-white flex items-center space-x-1 cursor-pointer font-medium"
+            >
+              <span>{showCelenganHistory ? 'Sembunyikan Riwayat Celengan' : `Lihat Riwayat Celengan (${celenganData.deposits.length + celenganData.withdrawals.length} mutasi)`}</span>
+              {showCelenganHistory ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
+            </button>
+
+            {showCelenganHistory && (
+              <div className="mt-2.5 space-y-1.5 max-h-48 overflow-y-auto pr-1">
+                {[...celenganData.deposits, ...celenganData.withdrawals]
+                  .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
+                  .map((tx) => {
+                    const isDeposit = tx.type === 'EXPENSE';
+                    const parsed = parseTransactionNote(tx.note);
+                    return (
+                      <div
+                        key={tx.id}
+                        className="p-2.5 bg-black/60 border border-[#1f2d26] rounded-xl flex items-center justify-between text-xs"
+                      >
+                        <div className="flex items-center space-x-2">
+                          <span className={`w-2 h-2 rounded-full ${isDeposit ? 'bg-emerald-400' : 'bg-amber-400'}`} />
+                          <div>
+                            <p className="text-white font-medium">
+                              {isDeposit ? 'Masuk Celengan' : 'Tarik dari Celengan'}
+                              {parsed.source && (
+                                <span className="ml-1.5 text-[10px] text-neutral-400 bg-[#16161c] px-1.5 py-0.5 rounded border border-[#27272e]">
+                                  {parsed.source}
+                                </span>
+                              )}
+                            </p>
+                            {parsed.note && <p className="text-[10px] text-neutral-400">{parsed.note}</p>}
+                          </div>
+                        </div>
+                        <div className="text-right">
+                          <p className={`font-mono font-bold ${isDeposit ? 'text-emerald-400' : 'text-amber-400'}`}>
+                            {isDeposit ? '+' : '-'}{formatRupiah(tx.amount)}
+                          </p>
+                          <span className="text-[10px] text-neutral-500 font-mono">{tx.date}</span>
+                        </div>
+                      </div>
+                    );
+                  })}
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+
       {/* Action Buttons */}
       <div className="flex items-center gap-2.5">
         <button
@@ -712,24 +961,31 @@ export const KantongTab: FC<KantongTabProps> = ({
       </div>
 
       {/* MODAL: SET INCOME & FUNDS BREAKDOWN (CASH & E-MONEY) */}
-      {showIncomeModal && (
-        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4 bg-black/85 backdrop-blur-sm animate-in fade-in duration-200">
-          <div className="w-full sm:max-w-lg max-h-[90vh] overflow-y-auto bg-[#09090b] border-t sm:border border-[#222228] rounded-t-3xl sm:rounded-3xl p-5 sm:p-6 space-y-5 shadow-2xl">
-            
-            {/* Header */}
-            <div className="border-b border-[#222228] pb-3">
-              <h3 className="text-base sm:text-lg font-bold text-white flex items-center space-x-2">
-                <Wallet className="w-5 h-5 text-indigo-400" />
-                <span>Atur Sumber Dana ({periodLabel})</span>
-              </h3>
-              <p className="text-xs text-neutral-400 mt-1">
-                Catat uang cash dan saldo e-money Anda. Total akumulasi otomatis dihitung sebagai pemasukan periode.
-              </p>
-            </div>
+      {showIncomeModal &&
+        createPortal(
+          <div
+            className="fixed -top-12 -bottom-12 inset-x-0 z-[100] flex items-end sm:items-center justify-center p-0 sm:p-4 bg-black/85 backdrop-blur-md animate-in fade-in duration-200"
+            onClick={() => setShowIncomeModal(false)}
+          >
+            <div
+              className="w-full sm:max-w-lg max-h-[90vh] overflow-y-auto bg-[#09090b] border-t sm:border border-[#222228] rounded-t-3xl sm:rounded-3xl p-5 sm:p-6 space-y-5 shadow-2xl"
+              onClick={(e) => e.stopPropagation()}
+            >
+              
+              {/* Header */}
+              <div className="border-b border-[#222228] pb-3">
+                <h3 className="text-base sm:text-lg font-bold text-white flex items-center space-x-2">
+                  <Wallet className="w-5 h-5 text-indigo-400" />
+                  <span>Atur Sumber Dana ({periodLabel})</span>
+                </h3>
+                <p className="text-xs text-neutral-400 mt-1">
+                  Catat uang cash dan saldo e-money Anda. Total akumulasi otomatis dihitung sebagai pemasukan periode.
+                </p>
+              </div>
 
-            {errorMsg && <p className="text-xs text-rose-400">{errorMsg}</p>}
+              {errorMsg && <p className="text-xs text-rose-400">{errorMsg}</p>}
 
-            <form onSubmit={handleSaveIncome} className="space-y-5">
+              <form onSubmit={handleSaveIncome} className="space-y-5">
               
               {/* SECTION 1: UANG CASH (TUNAI) */}
               <div className="p-4 bg-black/60 border border-[#222228] rounded-2xl space-y-2.5">
@@ -886,14 +1142,22 @@ export const KantongTab: FC<KantongTabProps> = ({
               </div>
             </form>
           </div>
-        </div>
+        </div>,
+        document.body
       )}
 
       {/* MODAL: CREATE CATEGORY */}
-      {showCategoryModal && (
-        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4 bg-black/85 backdrop-blur-sm animate-in fade-in duration-200">
-          <div className="w-full sm:max-w-md max-h-[85vh] overflow-y-auto bg-[#09090b] border-t sm:border border-[#222228] rounded-t-3xl sm:rounded-3xl p-6 space-y-4 shadow-2xl">
-            <h3 className="text-sm sm:text-base font-bold text-white">Kelola Kategori</h3>
+      {showCategoryModal &&
+        createPortal(
+          <div
+            className="fixed -top-12 -bottom-12 inset-x-0 z-[100] flex items-end sm:items-center justify-center p-0 sm:p-4 bg-black/85 backdrop-blur-md animate-in fade-in duration-200"
+            onClick={() => { setShowCategoryModal(false); setErrorMsg(null); }}
+          >
+            <div
+              className="w-full sm:max-w-md max-h-[85vh] overflow-y-auto bg-[#09090b] border-t sm:border border-[#222228] rounded-t-3xl sm:rounded-3xl p-6 space-y-4 shadow-2xl"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <h3 className="text-sm sm:text-base font-bold text-white">Kelola Kategori</h3>
             {errorMsg && (
               <p role="alert" className="text-xs text-rose-400">{errorMsg}</p>
             )}
@@ -996,70 +1260,360 @@ export const KantongTab: FC<KantongTabProps> = ({
               </button>
             </div>
           </div>
-        </div>
+        </div>,
+        document.body
       )}
 
       {/* MODAL: ALLOCATE ENVELOPE */}
-      {showAllocateModal && (
-        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4 bg-black/85 backdrop-blur-sm animate-in fade-in duration-200">
-          <div className="w-full sm:max-w-md bg-[#09090b] border-t sm:border border-[#222228] rounded-t-3xl sm:rounded-3xl p-6 space-y-4 shadow-2xl">
-            <h3 className="text-sm sm:text-base font-bold text-white">Alokasikan Dana ke Kantong</h3>
-            <form onSubmit={handleSaveAllocation} className="space-y-3.5">
-              <div>
-                <label className="block text-[11px] text-neutral-400 mb-1">Pilih Kategori</label>
-                {categories.length === 0 ? (
-                  <p className="text-xs text-amber-400">
-                    Belum ada kategori. Klik tombol "Kelola Kategori" terlebih dahulu.
-                  </p>
-                ) : (
-                  <select
-                    value={allocCategoryId}
-                    onChange={(e) => setAllocCategoryId(e.target.value)}
+      {showAllocateModal &&
+        createPortal(
+          <div
+            className="fixed -top-12 -bottom-12 inset-x-0 z-[100] flex items-end sm:items-center justify-center p-0 sm:p-4 bg-black/85 backdrop-blur-md animate-in fade-in duration-200"
+            onClick={() => setShowAllocateModal(false)}
+          >
+            <div
+              className="w-full sm:max-w-md bg-[#09090b] border-t sm:border border-[#222228] rounded-t-3xl sm:rounded-3xl p-6 space-y-4 shadow-2xl"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <h3 className="text-sm sm:text-base font-bold text-white">Alokasikan Dana ke Kantong</h3>
+              <form onSubmit={handleSaveAllocation} className="space-y-3.5">
+                <div>
+                  <label className="block text-[11px] text-neutral-400 mb-1">Pilih Kategori</label>
+                  {categories.length === 0 ? (
+                    <p className="text-xs text-amber-400">
+                      Belum ada kategori. Klik tombol "Kelola Kategori" terlebih dahulu.
+                    </p>
+                  ) : (
+                    <select
+                      value={allocCategoryId}
+                      onChange={(e) => setAllocCategoryId(e.target.value)}
+                      required
+                      className="w-full bg-black border border-[#27272e] rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-indigo-500"
+                    >
+                      <option value="">-- Pilih Kategori --</option>
+                      {categories.map((c) => (
+                        <option key={c.id} value={c.id}>
+                          {c.name}
+                        </option>
+                      ))}
+                    </select>
+                  )}
+                </div>
+
+                <div>
+                  <label className="block text-[11px] text-neutral-400 mb-1">Nominal Alokasi (Rp)</label>
+                  <input
+                    type="number"
+                    value={allocAmount}
+                    onChange={(e) => setAllocAmount(e.target.value)}
+                    placeholder="Misal: 250000"
                     required
-                    className="w-full bg-black border border-[#27272e] rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-indigo-500"
+                    className="w-full bg-black border border-[#27272e] rounded-xl px-3 py-2 text-xs text-white font-bold focus:outline-none focus:border-indigo-500"
+                  />
+                </div>
+
+                <div className="flex justify-end space-x-2 pt-2">
+                  <button
+                    type="button"
+                    onClick={() => setShowAllocateModal(false)}
+                    className="px-3.5 py-1.5 text-xs text-neutral-400 hover:text-white cursor-pointer transition-colors"
                   >
-                    <option value="">-- Pilih Kategori --</option>
-                    {categories.map((c) => (
-                      <option key={c.id} value={c.id}>
-                        {c.name}
-                      </option>
-                    ))}
-                  </select>
-                )}
+                    Batal
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={loading || categories.length === 0}
+                    className="px-4 py-1.5 bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold rounded-xl cursor-pointer transition-all shadow-md shadow-indigo-600/20"
+                  >
+                    {loading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : 'Terapkan'}
+                  </button>
+                </div>
+              </form>
+            </div>
+          </div>,
+          document.body
+        )}
+
+      {/* MODAL: ISI CELENGAN */}
+      {showDepositModal &&
+        createPortal(
+          <div
+            className="fixed -top-12 -bottom-12 inset-x-0 z-[100] flex items-end sm:items-center justify-center p-0 sm:p-4 bg-black/85 backdrop-blur-md animate-in fade-in duration-200"
+            onClick={() => setShowDepositModal(false)}
+          >
+            <div
+              className="w-full sm:max-w-md max-h-[90vh] overflow-y-auto bg-[#09090b] border-t sm:border border-[#222228] rounded-t-3xl sm:rounded-3xl p-5 sm:p-6 space-y-4 shadow-2xl"
+              onClick={(e) => e.stopPropagation()}
+            >
+              {/* Header */}
+              <div className="border-b border-[#222228] pb-3">
+                <div className="flex items-center space-x-2.5">
+                  <div className="w-9 h-9 rounded-xl bg-emerald-500/15 border border-emerald-500/20 text-emerald-400 flex items-center justify-center font-bold">
+                    <PiggyBank className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <h3 className="text-sm sm:text-base font-bold text-white">Tabung ke Celengan</h3>
+                    <p className="text-[11px] text-neutral-400">Bebas masukkan semua sisa uang atau sebagian</p>
+                  </div>
+                </div>
               </div>
 
-              <div>
-                <label className="block text-[11px] text-neutral-400 mb-1">Nominal Alokasi (Rp)</label>
-                <input
-                  type="number"
-                  value={allocAmount}
-                  onChange={(e) => setAllocAmount(e.target.value)}
-                  placeholder="Misal: 250000"
-                  required
-                  className="w-full bg-black border border-[#27272e] rounded-xl px-3 py-2 text-xs text-white font-bold focus:outline-none focus:border-indigo-500"
-                />
+              {errorMsg && (
+                <div className="p-3 bg-rose-500/10 border border-rose-500/20 rounded-xl text-rose-300 text-xs">
+                  {errorMsg}
+                </div>
+              )}
+
+              {/* Sisa Uang Context Box */}
+              <div className="p-3 rounded-2xl bg-black border border-[#222228] space-y-1">
+                <span className="text-[11px] text-neutral-400 block">Sisa Uang Tersedia Periode Ini:</span>
+                <p className={`text-base font-black font-mono ${totalActiveRemaining > 0 ? 'text-emerald-400' : 'text-neutral-400'}`}>
+                  {formatRupiah(Math.max(0, totalActiveRemaining))}
+                </p>
               </div>
 
-              <div className="flex justify-end space-x-2 pt-2">
+              {/* Quick Chips */}
+              <div className="space-y-1.5">
+                <label className="block text-[11px] text-neutral-400">Pilihan Cepat Nominal:</label>
+                <div className="flex flex-wrap gap-1.5">
+                  {totalActiveRemaining > 0 && (
+                    <>
+                      <button
+                        type="button"
+                        onClick={() => setDepositAmountStr(totalActiveRemaining.toString())}
+                        className="px-2.5 py-1 text-xs font-bold rounded-lg bg-emerald-500/15 border border-emerald-500/30 text-emerald-300 hover:bg-emerald-500/25 cursor-pointer"
+                      >
+                        ⚡ Semua Sisa ({formatRupiah(totalActiveRemaining)})
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setDepositAmountStr(Math.floor(totalActiveRemaining / 2).toString())}
+                        className="px-2.5 py-1 text-xs font-semibold rounded-lg bg-[#141418] border border-[#27272e] text-neutral-300 hover:text-white cursor-pointer"
+                      >
+                        50% Sisa ({formatRupiah(Math.floor(totalActiveRemaining / 2))})
+                      </button>
+                    </>
+                  )}
+                  {[10000, 25000, 50000, 100000, 200000].map((val) => (
+                    <button
+                      key={val}
+                      type="button"
+                      onClick={() => setDepositAmountStr(val.toString())}
+                      className="px-2 py-1 text-xs font-mono rounded-lg bg-[#141418] border border-[#27272e] text-neutral-300 hover:text-white hover:border-emerald-500/40 cursor-pointer"
+                    >
+                      {formatRupiah(val)}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <form onSubmit={handleSaveDeposit} className="space-y-4">
+                {/* Nominal Input */}
+                <div>
+                  <label className="block text-[11px] text-neutral-400 mb-1">Nominal yang Ditabung (Rp)</label>
+                  <input
+                    type="number"
+                    value={depositAmountStr}
+                    onChange={(e) => setDepositAmountStr(e.target.value)}
+                    placeholder="Misal: 50000"
+                    required
+                    min="1"
+                    className="w-full bg-black border border-[#27272e] rounded-xl px-3 py-2 text-sm text-white font-bold font-mono focus:outline-none focus:border-emerald-500"
+                  />
+                </div>
+
+                {/* Sumber Dana Selector */}
+                <div>
+                  <label className="block text-[11px] text-neutral-400 mb-1.5">Ambil Dana Dari Sumber:</label>
+                  <div className="flex flex-wrap gap-1.5">
+                    {availableSourceList.map((src) => {
+                      const isSelected = depositSource === src;
+                      const isCash = src === 'Cash';
+                      const remaining = isCash ? cashRemaining : (emoneyRemainingMap[src] ?? 0);
+                      return (
+                        <button
+                          key={src}
+                          type="button"
+                          onClick={() => setDepositSource(src)}
+                          className={`px-3 py-1.5 rounded-xl text-xs font-semibold border transition-all cursor-pointer flex items-center space-x-1.5 ${
+                            isSelected
+                              ? 'bg-emerald-600 text-white border-emerald-500 font-bold shadow-md shadow-emerald-600/30'
+                              : 'bg-black border-[#27272e] text-neutral-300 hover:text-white hover:border-[#383842]'
+                          }`}
+                        >
+                          <span>{src}</span>
+                          <span className="text-[10px] font-mono opacity-80">({formatRupiah(remaining)})</span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                {/* Catatan */}
+                <div>
+                  <label className="block text-[11px] text-neutral-400 mb-1">Catatan (Opsional)</label>
+                  <input
+                    type="text"
+                    value={depositNote}
+                    onChange={(e) => setDepositNote(e.target.value)}
+                    placeholder="Misal: Uang sisa mingguan"
+                    className="w-full bg-black border border-[#27272e] rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-emerald-500"
+                  />
+                </div>
+
+                <div className="flex justify-end space-x-2 pt-2 border-t border-[#222228]">
+                  <button
+                    type="button"
+                    onClick={() => setShowDepositModal(false)}
+                    className="px-4 py-2 text-xs font-semibold text-neutral-400 hover:text-white cursor-pointer"
+                  >
+                    Batal
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={celenganActionLoading}
+                    className="px-5 py-2 bg-emerald-600 hover:bg-emerald-500 active:scale-95 text-white text-xs font-bold rounded-xl shadow-lg shadow-emerald-600/20 cursor-pointer transition-all flex items-center space-x-1.5"
+                  >
+                    {celenganActionLoading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : 'Masukkan ke Celengan'}
+                  </button>
+                </div>
+              </form>
+            </div>
+          </div>,
+          document.body
+        )}
+
+      {/* MODAL: TARIK SALDO CELENGAN */}
+      {showWithdrawModal &&
+        createPortal(
+          <div
+            className="fixed -top-12 -bottom-12 inset-x-0 z-[100] flex items-end sm:items-center justify-center p-0 sm:p-4 bg-black/85 backdrop-blur-md animate-in fade-in duration-200"
+            onClick={() => setShowWithdrawModal(false)}
+          >
+            <div
+              className="w-full sm:max-w-md max-h-[90vh] overflow-y-auto bg-[#09090b] border-t sm:border border-[#222228] rounded-t-3xl sm:rounded-3xl p-5 sm:p-6 space-y-4 shadow-2xl"
+              onClick={(e) => e.stopPropagation()}
+            >
+              {/* Header */}
+              <div className="border-b border-[#222228] pb-3">
+                <div className="flex items-center space-x-2.5">
+                  <div className="w-9 h-9 rounded-xl bg-amber-500/15 border border-amber-500/20 text-amber-400 flex items-center justify-center font-bold">
+                    <ArrowDownLeft className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <h3 className="text-sm sm:text-base font-bold text-white">Tarik Saldo dari Celengan</h3>
+                    <p className="text-[11px] text-neutral-400">Pindahkan saldo celengan kembali ke dompet aktif Anda</p>
+                  </div>
+                </div>
+              </div>
+
+              {errorMsg && (
+                <div className="p-3 bg-rose-500/10 border border-rose-500/20 rounded-xl text-rose-300 text-xs">
+                  {errorMsg}
+                </div>
+              )}
+
+              {/* Saldo Celengan Box */}
+              <div className="p-3 rounded-2xl bg-black border border-[#222228] space-y-1">
+                <span className="text-[11px] text-neutral-400 block">Total Saldo Tersedia di Celengan:</span>
+                <p className="text-lg font-black font-mono text-emerald-400">
+                  {formatRupiah(celenganTotal)}
+                </p>
+              </div>
+
+              {/* Quick Chips */}
+              <div className="flex flex-wrap gap-1.5">
                 <button
                   type="button"
-                  onClick={() => setShowAllocateModal(false)}
-                  className="px-3.5 py-1.5 text-xs text-neutral-400 hover:text-white cursor-pointer transition-colors"
+                  onClick={() => setWithdrawAmountStr(celenganTotal.toString())}
+                  className="px-2.5 py-1 text-xs font-bold rounded-lg bg-amber-500/15 border border-amber-500/30 text-amber-300 hover:bg-amber-500/25 cursor-pointer"
                 >
-                  Batal
+                  Tarik Semua ({formatRupiah(celenganTotal)})
                 </button>
-                <button
-                  type="submit"
-                  disabled={loading || categories.length === 0}
-                  className="px-4 py-1.5 bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold rounded-xl cursor-pointer transition-all shadow-md shadow-indigo-600/20"
-                >
-                  {loading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : 'Terapkan'}
-                </button>
+                {[50000, 100000, 200000].map((val) => (
+                  val < celenganTotal && (
+                    <button
+                      key={val}
+                      type="button"
+                      onClick={() => setWithdrawAmountStr(val.toString())}
+                      className="px-2 py-1 text-xs font-mono rounded-lg bg-[#141418] border border-[#27272e] text-neutral-300 hover:text-white cursor-pointer"
+                    >
+                      {formatRupiah(val)}
+                    </button>
+                  )
+                ))}
               </div>
-            </form>
-          </div>
-        </div>
-      )}
+
+              <form onSubmit={handleSaveWithdraw} className="space-y-4">
+                <div>
+                  <label className="block text-[11px] text-neutral-400 mb-1">Nominal yang Ditarik (Rp)</label>
+                  <input
+                    type="number"
+                    value={withdrawAmountStr}
+                    onChange={(e) => setWithdrawAmountStr(e.target.value)}
+                    placeholder="Misal: 50000"
+                    required
+                    min="1"
+                    max={celenganTotal}
+                    className="w-full bg-black border border-[#27272e] rounded-xl px-3 py-2 text-sm text-white font-bold font-mono focus:outline-none focus:border-amber-500"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-[11px] text-neutral-400 mb-1.5">Kirim Saldo ke:</label>
+                  <div className="flex flex-wrap gap-1.5">
+                    {availableSourceList.map((src) => {
+                      const isSelected = withdrawSource === src;
+                      return (
+                        <button
+                          key={src}
+                          type="button"
+                          onClick={() => setWithdrawSource(src)}
+                          className={`px-3 py-1.5 rounded-xl text-xs font-semibold border transition-all cursor-pointer ${
+                            isSelected
+                              ? 'bg-amber-600 text-white border-amber-500 font-bold shadow-md shadow-amber-600/30'
+                              : 'bg-black border-[#27272e] text-neutral-300 hover:text-white'
+                          }`}
+                        >
+                          {src}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-[11px] text-neutral-400 mb-1">Alasan / Catatan (Opsional)</label>
+                  <input
+                    type="text"
+                    value={withdrawNote}
+                    onChange={(e) => setWithdrawNote(e.target.value)}
+                    placeholder="Misal: Keperluan mendadak"
+                    className="w-full bg-black border border-[#27272e] rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-amber-500"
+                  />
+                </div>
+
+                <div className="flex justify-end space-x-2 pt-2 border-t border-[#222228]">
+                  <button
+                    type="button"
+                    onClick={() => setShowWithdrawModal(false)}
+                    className="px-4 py-2 text-xs font-semibold text-neutral-400 hover:text-white cursor-pointer"
+                  >
+                    Batal
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={celenganActionLoading}
+                    className="px-5 py-2 bg-amber-600 hover:bg-amber-500 active:scale-95 text-white text-xs font-bold rounded-xl shadow-lg shadow-amber-600/20 cursor-pointer transition-all flex items-center space-x-1.5"
+                  >
+                    {celenganActionLoading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : 'Tarik Saldo'}
+                  </button>
+                </div>
+              </form>
+            </div>
+          </div>,
+          document.body
+        )}
 
     </div>
   );

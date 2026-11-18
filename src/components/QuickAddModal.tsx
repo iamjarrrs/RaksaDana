@@ -1,4 +1,5 @@
 import { useState, useEffect, type FC, type FormEvent } from 'react';
+import { createPortal } from 'react-dom';
 import { X, TrendingDown, TrendingUp, CreditCard, Loader2, Banknote, Smartphone, Plus } from 'lucide-react';
 import { Category, Debt } from '../types/database';
 import { DataService, formatTransactionNote } from '../services/dataService';
@@ -97,9 +98,15 @@ export const QuickAddModal: FC<QuickAddModalProps> = ({
     }
   };
 
-  return (
-    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4 bg-black/85 backdrop-blur-sm animate-in fade-in duration-200">
-      <div className="w-full sm:max-w-lg max-h-[90vh] overflow-y-auto bg-[#09090b] border-t sm:border border-[#222228] rounded-t-3xl sm:rounded-3xl p-5 sm:p-6 shadow-2xl space-y-4">
+  return createPortal(
+    <div
+      className="fixed -top-12 -bottom-12 inset-x-0 z-[100] flex items-end sm:items-center justify-center p-0 sm:p-4 bg-black/85 backdrop-blur-md animate-in fade-in duration-200"
+      onClick={onClose}
+    >
+      <div
+        className="w-full sm:max-w-lg max-h-[90vh] overflow-y-auto bg-[#09090b] border-t sm:border border-[#222228] rounded-t-3xl sm:rounded-3xl p-5 sm:p-6 shadow-2xl space-y-4"
+        onClick={(e) => e.stopPropagation()}
+      >
         
         {/* Modal Header */}
         <div className="flex items-center justify-between border-b border-[#222228] pb-3.5">
@@ -316,6 +323,7 @@ export const QuickAddModal: FC<QuickAddModalProps> = ({
         </form>
 
       </div>
-    </div>
+    </div>,
+    document.body
   );
 };

@@ -1,4 +1,5 @@
 import { useState, type FC, type FormEvent } from 'react';
+import { createPortal } from 'react-dom';
 import { 
   CreditCard, 
   Plus, 
@@ -10,6 +11,7 @@ import {
 } from 'lucide-react';
 import { ViewDebtSummary } from '../types/database';
 import { formatRupiah, DataService } from '../services/dataService';
+import { useConfirm } from '../contexts/ConfirmContext';
 import { format } from 'date-fns';
 
 interface UtangTabProps {
@@ -19,6 +21,7 @@ interface UtangTabProps {
 }
 
 export const UtangTab: FC<UtangTabProps> = ({ debts, onRefresh, onOpenQuickAdd }) => {
+  const confirm = useConfirm();
   const [showAddModal, setShowAddModal] = useState(false);
   const [showAdjustModal, setShowAdjustModal] = useState(false);
   const [selectedDebtId, setSelectedDebtId] = useState<string | null>(null);
@@ -82,6 +85,18 @@ export const UtangTab: FC<UtangTabProps> = ({ debts, onRefresh, onOpenQuickAdd }
   };
 
   const handleToggleArchive = async (debtId: string, currentArchived: boolean) => {
+    const actionText = currentArchived ? 'Pulihkan' : 'Arsipkan';
+    const confirmed = await confirm({
+      title: `${actionText} Catatan Utang`,
+      message: currentArchived
+        ? 'Tampilkan kembali utang ini di daftar utang aktif?'
+        : 'Arsipkan utang ini agar tidak memenuhi daftar utang aktif Anda? Riwayat cicilan tetap aman.',
+      confirmText: actionText,
+      cancelText: 'Batal',
+      variant: currentArchived ? 'info' : 'warning',
+    });
+    if (!confirmed) return;
+
     try {
       await DataService.toggleArchiveDebt(debtId, !currentArchived);
       onRefresh();
@@ -237,150 +252,166 @@ export const UtangTab: FC<UtangTabProps> = ({ debts, onRefresh, onOpenQuickAdd }
       </div>
 
       {/* MODAL: TAMBAH UTANG */}
-      {showAddModal && (
-        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4 bg-black/85 backdrop-blur-sm animate-in fade-in duration-200">
-          <div className="w-full sm:max-w-md bg-[#09090b] border-t sm:border border-[#222228] rounded-t-3xl sm:rounded-3xl p-6 space-y-4 shadow-2xl">
-            <h3 className="text-sm sm:text-base font-bold text-white">Tambah Catatan Utang Baru</h3>
-            <form onSubmit={handleCreateDebt} className="space-y-3.5">
-              <div>
-                <label className="block text-[11px] text-neutral-400 mb-1">Nama Pemberi Pinjaman / Kreditor</label>
-                <input
-                  type="text"
-                  value={creditor}
-                  onChange={(e) => setCreditor(e.target.value)}
-                  placeholder="Misal: Bank A, Teman, Paylater"
-                  required
-                  className="w-full bg-black border border-[#27272e] rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-indigo-500"
-                />
-              </div>
+      {showAddModal &&
+        createPortal(
+          <div
+            className="fixed -top-12 -bottom-12 inset-x-0 z-[100] flex items-end sm:items-center justify-center p-0 sm:p-4 bg-black/85 backdrop-blur-md animate-in fade-in duration-200"
+            onClick={() => setShowAddModal(false)}
+          >
+            <div
+              className="w-full sm:max-w-md bg-[#09090b] border-t sm:border border-[#222228] rounded-t-3xl sm:rounded-3xl p-6 space-y-4 shadow-2xl"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <h3 className="text-sm sm:text-base font-bold text-white">Tambah Catatan Utang Baru</h3>
+              <form onSubmit={handleCreateDebt} className="space-y-3.5">
+                <div>
+                  <label className="block text-[11px] text-neutral-400 mb-1">Nama Pemberi Pinjaman / Kreditor</label>
+                  <input
+                    type="text"
+                    value={creditor}
+                    onChange={(e) => setCreditor(e.target.value)}
+                    placeholder="Misal: Bank A, Teman, Paylater"
+                    required
+                    className="w-full bg-black border border-[#27272e] rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-indigo-500"
+                  />
+                </div>
 
-              <div>
-                <label className="block text-[11px] text-neutral-400 mb-1">Nominal Pokok Awal (Rp)</label>
-                <input
-                  type="number"
-                  value={principalStr}
-                  onChange={(e) => setPrincipalStr(e.target.value)}
-                  placeholder="Misal: 5000000"
-                  required
-                  className="w-full bg-black border border-[#27272e] rounded-xl px-3 py-2 text-xs text-white font-bold focus:outline-none focus:border-indigo-500"
-                />
-              </div>
+                <div>
+                  <label className="block text-[11px] text-neutral-400 mb-1">Nominal Pokok Awal (Rp)</label>
+                  <input
+                    type="number"
+                    value={principalStr}
+                    onChange={(e) => setPrincipalStr(e.target.value)}
+                    placeholder="Misal: 5000000"
+                    required
+                    className="w-full bg-black border border-[#27272e] rounded-xl px-3 py-2 text-xs text-white font-bold focus:outline-none focus:border-indigo-500"
+                  />
+                </div>
 
-              <div>
-                <label className="block text-[11px] text-neutral-400 mb-1">Tanggal Mulai</label>
-                <input
-                  type="date"
-                  value={startDate}
-                  onChange={(e) => setStartDate(e.target.value)}
-                  className="w-full bg-black border border-[#27272e] rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-indigo-500"
-                />
-              </div>
+                <div>
+                  <label className="block text-[11px] text-neutral-400 mb-1">Tanggal Mulai</label>
+                  <input
+                    type="date"
+                    value={startDate}
+                    onChange={(e) => setStartDate(e.target.value)}
+                    className="w-full bg-black border border-[#27272e] rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-indigo-500"
+                  />
+                </div>
 
-              <div>
-                <label className="block text-[11px] text-neutral-400 mb-1">Catatan (Opsional)</label>
-                <input
-                  type="text"
-                  value={note}
-                  onChange={(e) => setNote(e.target.value)}
-                  placeholder="Misal: Bunga 0%, Jatuh tempo akhir tahun"
-                  className="w-full bg-black border border-[#27272e] rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-indigo-500"
-                />
-              </div>
+                <div>
+                  <label className="block text-[11px] text-neutral-400 mb-1">Catatan (Opsional)</label>
+                  <input
+                    type="text"
+                    value={note}
+                    onChange={(e) => setNote(e.target.value)}
+                    placeholder="Misal: Bunga 0%, Jatuh tempo akhir tahun"
+                    className="w-full bg-black border border-[#27272e] rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-indigo-500"
+                  />
+                </div>
 
-              <div className="flex justify-end space-x-2 pt-2">
-                <button
-                  type="button"
-                  onClick={() => setShowAddModal(false)}
-                  className="px-3.5 py-1.5 text-xs text-neutral-400 hover:text-white cursor-pointer transition-colors"
-                >
-                  Batal
-                </button>
-                <button
-                  type="submit"
-                  disabled={loading}
-                  className="px-4 py-1.5 bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold rounded-xl cursor-pointer transition-all shadow-md shadow-indigo-600/20"
-                >
-                  {loading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : 'Simpan Utang'}
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
+                <div className="flex justify-end space-x-2 pt-2">
+                  <button
+                    type="button"
+                    onClick={() => setShowAddModal(false)}
+                    className="px-3.5 py-1.5 text-xs text-neutral-400 hover:text-white cursor-pointer transition-colors"
+                  >
+                    Batal
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={loading}
+                    className="px-4 py-1.5 bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold rounded-xl cursor-pointer transition-all shadow-md shadow-indigo-600/20"
+                  >
+                    {loading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : 'Simpan Utang'}
+                  </button>
+                </div>
+              </form>
+            </div>
+          </div>,
+          document.body
+        )}
 
       {/* MODAL: TOP-UP / KOREKSI POKOK */}
-      {showAdjustModal && (
-        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4 bg-black/85 backdrop-blur-sm animate-in fade-in duration-200">
-          <div className="w-full sm:max-w-md bg-[#09090b] border-t sm:border border-[#222228] rounded-t-3xl sm:rounded-3xl p-6 space-y-4 shadow-2xl">
-            <h3 className="text-sm sm:text-base font-bold text-white">Penyesuaian Pokok Utang</h3>
-            <div className="grid grid-cols-2 gap-1.5 p-1 bg-black border border-[#222228] rounded-xl">
-              <button
-                type="button"
-                onClick={() => setIsTopUp(true)}
-                className={`py-1.5 text-xs font-semibold rounded-lg transition-all cursor-pointer ${
-                  isTopUp ? 'bg-indigo-600 text-white font-bold' : 'text-neutral-400 hover:text-white'
-                }`}
-              >
-                + Top-Up Pinjaman
-              </button>
-              <button
-                type="button"
-                onClick={() => setIsTopUp(false)}
-                className={`py-1.5 text-xs font-semibold rounded-lg transition-all cursor-pointer ${
-                  !isTopUp ? 'bg-indigo-600 text-white font-bold' : 'text-neutral-400 hover:text-white'
-                }`}
-              >
-                - Koreksi / Diskon
-              </button>
-            </div>
-
-            <form onSubmit={handleCreateAdjustment} className="space-y-3.5">
-              <div>
-                <label className="block text-[11px] text-neutral-400 mb-1">
-                  Nominal {isTopUp ? 'Tambahan Pokok' : 'Pengurangan'} (Rp)
-                </label>
-                <input
-                  type="number"
-                  value={deltaStr}
-                  onChange={(e) => setDeltaStr(e.target.value)}
-                  placeholder="Misal: 1000000"
-                  required
-                  className="w-full bg-black border border-[#27272e] rounded-xl px-3 py-2 text-xs text-white font-bold focus:outline-none focus:border-indigo-500"
-                />
-              </div>
-
-              <div>
-                <label className="block text-[11px] text-neutral-400 mb-1">Alasan Penyesuaian</label>
-                <input
-                  type="text"
-                  value={reason}
-                  onChange={(e) => setReason(e.target.value)}
-                  placeholder="Misal: Pinjaman tambahan untuk servis motor"
-                  required
-                  className="w-full bg-black border border-[#27272e] rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-indigo-500"
-                />
-              </div>
-
-              <div className="flex justify-end space-x-2 pt-2">
+      {showAdjustModal &&
+        createPortal(
+          <div
+            className="fixed -top-12 -bottom-12 inset-x-0 z-[100] flex items-end sm:items-center justify-center p-0 sm:p-4 bg-black/85 backdrop-blur-md animate-in fade-in duration-200"
+            onClick={() => setShowAdjustModal(false)}
+          >
+            <div
+              className="w-full sm:max-w-md bg-[#09090b] border-t sm:border border-[#222228] rounded-t-3xl sm:rounded-3xl p-6 space-y-4 shadow-2xl"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <h3 className="text-sm sm:text-base font-bold text-white">Penyesuaian Pokok Utang</h3>
+              <div className="grid grid-cols-2 gap-1.5 p-1 bg-black border border-[#222228] rounded-xl">
                 <button
                   type="button"
-                  onClick={() => setShowAdjustModal(false)}
-                  className="px-3.5 py-1.5 text-xs text-neutral-400 hover:text-white cursor-pointer transition-colors"
+                  onClick={() => setIsTopUp(true)}
+                  className={`py-1.5 text-xs font-semibold rounded-lg transition-all cursor-pointer ${
+                    isTopUp ? 'bg-indigo-600 text-white font-bold' : 'text-neutral-400 hover:text-white'
+                  }`}
                 >
-                  Batal
+                  + Top-Up Pinjaman
                 </button>
                 <button
-                  type="submit"
-                  disabled={loading}
-                  className="px-4 py-1.5 bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold rounded-xl cursor-pointer transition-all shadow-md shadow-indigo-600/20"
+                  type="button"
+                  onClick={() => setIsTopUp(false)}
+                  className={`py-1.5 text-xs font-semibold rounded-lg transition-all cursor-pointer ${
+                    !isTopUp ? 'bg-indigo-600 text-white font-bold' : 'text-neutral-400 hover:text-white'
+                  }`}
                 >
-                  {loading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : 'Simpan Penyesuaian'}
+                  - Koreksi / Diskon
                 </button>
               </div>
-            </form>
-          </div>
-        </div>
-      )}
+
+              <form onSubmit={handleCreateAdjustment} className="space-y-3.5">
+                <div>
+                  <label className="block text-[11px] text-neutral-400 mb-1">
+                    Nominal {isTopUp ? 'Tambahan Pokok' : 'Pengurangan'} (Rp)
+                  </label>
+                  <input
+                    type="number"
+                    value={deltaStr}
+                    onChange={(e) => setDeltaStr(e.target.value)}
+                    placeholder="Misal: 1000000"
+                    required
+                    className="w-full bg-black border border-[#27272e] rounded-xl px-3 py-2 text-xs text-white font-bold focus:outline-none focus:border-indigo-500"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-[11px] text-neutral-400 mb-1">Alasan Penyesuaian</label>
+                  <input
+                    type="text"
+                    value={reason}
+                    onChange={(e) => setReason(e.target.value)}
+                    placeholder="Misal: Pinjaman tambahan untuk servis motor"
+                    required
+                    className="w-full bg-black border border-[#27272e] rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-indigo-500"
+                  />
+                </div>
+
+                <div className="flex justify-end space-x-2 pt-2">
+                  <button
+                    type="button"
+                    onClick={() => setShowAdjustModal(false)}
+                    className="px-3.5 py-1.5 text-xs text-neutral-400 hover:text-white cursor-pointer transition-colors"
+                  >
+                    Batal
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={loading}
+                    className="px-4 py-1.5 bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold rounded-xl cursor-pointer transition-all shadow-md shadow-indigo-600/20"
+                  >
+                    {loading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : 'Simpan Penyesuaian'}
+                  </button>
+                </div>
+              </form>
+            </div>
+          </div>,
+          document.body
+        )}
 
     </div>
   );

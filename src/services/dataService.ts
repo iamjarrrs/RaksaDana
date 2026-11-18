@@ -431,4 +431,96 @@ export class DataService {
       .eq('id', debtId);
     if (error) throw error;
   }
+
+  // ----------------------------------------------------------------------------
+  // CELENGAN (SAVINGS / PIGGY BANK)
+  // ----------------------------------------------------------------------------
+  static async getOrCreateCelenganCategory(): Promise<Category> {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) throw new Error('Pengguna belum login.');
+
+    const { data: existing, error } = await supabase
+      .from('categories')
+      .select('*')
+      .eq('user_id', user.id)
+      .eq('type', 'SAVINGS')
+      .order('created_at', { ascending: true })
+      .limit(1);
+
+    if (error) throw error;
+    if (existing && existing.length > 0) {
+      return existing[0];
+    }
+
+    return await this.createCategory('Celengan', 'SAVINGS', '#10b981');
+  }
+
+  static calculateCelenganBalance(
+    transactions: Transaction[],
+    celenganCategoryId?: string | null
+  ): { total: number; deposits: Transaction[]; withdrawals: Transaction[] } {
+    const deposits: Transaction[] = [];
+    const withdrawals: Transaction[] = [];
+    let total = 0;
+
+    for (const tx of transactions) {
+      const isCelenganCategory = celenganCategoryId && tx.category_id === celenganCategoryId;
+      const noteLower = (tx.note || '').toLowerCase();
+      const isCelenganNote = noteLower.includes('celengan');
+
+      if (isCelenganCategory || isCelenganNote) {
+        if (tx.type === 'EXPENSE') {
+          total += Number(tx.amount);
+          deposits.push(tx);
+        } else if (tx.type === 'INCOME') {
+          total -= Number(tx.amount);
+          withdrawals.push(tx);
+        }
+      }
+    }
+
+    return { total: Math.max(0, total), deposits, withdrawals };
+  }
+
+  static async depositToCelengan(params: {
+    amount: number;
+    source: string;
+    note?: string;
+    date?: string;
+  }): Promise<Transaction> {
+    const celenganCat = await this.getOrCreateCelenganCategory();
+    const formattedNote = formatTransactionNote(
+      params.source,
+      params.note || 'Tabung ke celengan'
+    );
+
+    return await this.createTransaction({
+      date: params.date || format(new Date(), 'yyyy-MM-dd'),
+      type: 'EXPENSE',
+      category_id: celenganCat.id,
+      amount: params.amount,
+      note: formattedNote,
+    });
+  }
+
+  static async withdrawFromCelengan(params: {
+    amount: number;
+    targetSource: string;
+    note?: string;
+    date?: string;
+  }): Promise<Transaction> {
+    const celenganCat = await this.getOrCreateCelenganCategory();
+    const formattedNote = formatTransactionNote(
+      params.targetSource,
+      params.note || 'Tarik dari celengan'
+    );
+
+    return await this.createTransaction({
+      date: params.date || format(new Date(), 'yyyy-MM-dd'),
+      type: 'INCOME',
+      category_id: celenganCat.id,
+      amount: params.amount,
+      note: formattedNote,
+    });
+  }
 }

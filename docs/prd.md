@@ -1,141 +1,179 @@
-# PRD (Final): Sistem Keuangan Fleksibel & Pelacak Utang
+# PRD (As-Built & Final): RaksaDana — Sistem Keuangan Fleksibel, Multi-Sumber Dana & Pelacak Utang
 
-*Versi 1.1, 17 November 2026. Status: Final (Siap Eksekusi).*
+*Versi: 2.0 (As-Built / Sesuai Hasil Implementasi Proyek)*  
+*Status: Selesai Diimplementasikan & Beroperasi Penuh (Production-Ready)*  
+*Aplikasi Live:* [https://raksa-dana.vercel.app](https://raksa-dana.vercel.app)
 
-## 1. Ringkasan
+---
 
-Aplikasi web progresif (PWA) *mobile-first* untuk mencatat keuangan berbasis sistem kantong (*envelope budgeting*) dengan siklus anggaran harian, mingguan, atau bulanan (mingguan sebagai default), serta melacak utang secara dinamis. Aplikasi ini dirancang 100% dinamis (*user-defined*) tanpa data bawaan yang tertanam kaku, sehingga siap digunakan oleh siapa saja maupun dijadikan studi kasus portofolio *full-stack* dan perancangan database.
+## 1. Ringkasan Eksekutif
 
-**Tujuan:**
+**RaksaDana** adalah aplikasi web progresif (PWA) *cross-platform* (mobile, tablet, desktop) yang mengintegrasikan sistem anggaran kantong (*envelope budgeting*), pemisahan sumber dana tunai (*Cash*) dan multi-dompet digital (*E-Money*), pencatatan transaksi instan (< 10 detik), serta pelacakan utang dan cicilan dinamis.
 
-1. Mencegah defisit arus kas melalui disiplin alokasi anggaran dalam siklus yang dapat dipilih pengguna.
-2. Mencatat seluruh mutasi transaksi dengan input cepat dari ponsel (< 10 detik).
-3. Memberikan kebebasan penuh kepada pengguna untuk mengelola kategori, siklus anggaran, dan daftar utang secara dinamis (CRUD penuh).
-4. Menjadi proyek portofolio yang mendemonstrasikan perancangan skema relasional, kalkulasi berbasis *SQL Views*, keamanan data tingkat baris (*Row Level Security*), dan pengalaman pengguna (UX) *mobile*.
+Aplikasi ini dirancang dengan prinsip **Zero Hardcoded Data (*Blank-Slate Philosophy*)** dan arsitektur database **Single Source of Truth** berbasis *PostgreSQL Views* dan *Row Level Security* (RLS) di Supabase.
 
-**Batasan Proyek:**
+### Tujuan Utama yang Telah Dicapai:
+1. **Mencegah Kebocoran Finansial**: Alokasi anggaran berbasis siklus fleksibel (Harian, Mingguan, Bulanan) dengan status kantong otomatis (`AMAN`, `HABIS`, `OVERBUDGET`).
+2. **Monitoring Terpusat Saldo Tunai & E-Money**: Menyelesaikan masalah saldo receh yang terpencar di berbagai e-wallet (GoPay, OVO, DANA, ShopeePay, BCA, dll) melalui perhitungan sisa otomatis dan menu laporan dropdown khusus.
+3. **Pencatatan Transaksi Instan (< 10 Detik)**: Modal input cepat (*quick-add*) yang mendukung pemilihan sumber dana sekali sentuh, otomatis memotong saldo rekening/dompet terkait.
+4. **Pelacakan Utang & Cicilan Dinamis**: Monitoring sisa pinjaman yang berkurang otomatis setiap kali ada transaksi pembayaran cicilan.
+5. **Tampilan Full Dark Black & Responsivitas Maksimal**: Tema OLED true black (`#000000`) dengan navigasi ganda adaptif (bottom bar di HP, top header bar di desktop/tablet).
 
-* Biaya operasional Rp 0 (sepenuhnya memanfaatkan *free tier* permanen).
-* Dapat diakses dan di-install di ponsel (Android/iOS) maupun laptop Linux.
-* Dikerjakan dan dipelihara oleh satu orang (*solo developer*).
+---
 
-## 2. Prinsip Konfigurasi & Dinamika Data
+## 2. Prinsip Desain & Dinamika Data (Aktual)
 
-Aplikasi ini menerapkan pendekatan **Zero Hardcoded Data (Blank-Slate Initialization)**:
+* **Blank-Slate Initialization**: Pengguna baru yang mendaftar memulai dari kondisi akun bersih tanpa data palsu (*dummy*). Disediakan tombol inisialisasi kategori awal (*starter categories*) di tab Setelan sebagai bantuan opsional.
+* **Siklus Anggaran Dinamis**: Pengguna dapat memilih siklus **Harian**, **Mingguan (Default)**, atau **Bulanan**. Data periode lama tetap tersimpan pada siklus asalnya tanpa konversi paksa.
+* **Multi-Sumber Dana Terintegrasi**: Pemasukan dihitung dari penjumlahan `Uang Tunai (Cash) + Akun-Akun E-Money`. Struktur rincian disimpan secara fleksibel dan tersinkronisasi di Supabase.
+* **Isolasi Data Tingkat Baris (RLS)**: Setiap operasi CRUD diverifikasi ketat oleh PostgreSQL RLS menggunakan `auth.uid() = user_id`.
+* **Hak Kendali Data Penuh**: Pengguna dapat melakukan reset anggaran periode terpilih, reset pabrik seluruh data keuangan, atau menghapus akun autentikasi permanen.
 
-* **Akun Baru Kosong (Clean State):** Saat pengguna baru mendaftar dan masuk pertama kali, seluruh daftar kategori, anggaran, transaksi, dan pelacak utang berada dalam keadaan kosong (*empty state* dengan panduan aksi cepat). Siklus anggaran awal adalah mingguan.
-* **Siklus Anggaran yang Dapat Dipilih:** Pengguna dapat memilih siklus harian, mingguan, atau bulanan. Perubahan siklus berlaku untuk periode baru; data anggaran lama tetap tersimpan pada siklus asalnya dan tidak dikonversi otomatis.
-* **Reset dan Penghapusan Akun:** Reset pabrik menghapus seluruh data finansial dan mengembalikan preferensi ke default tanpa menghapus akun login. Penghapusan akun menghapus akun autentikasi beserta seluruh data terkait setelah verifikasi kata sandi.
-* **CRUD Penuh di Seluruh Entitas:** Pengguna memiliki kendali penuh untuk menambah (*Create*), melihat (*Read*), mengubah (*Update*), dan menghapus (*Delete*) pemasukan dan alokasi sesuai siklus, kategori kantong, mutasi transaksi, daftar utang, hingga target pelunasan.
-* **Pemisahan Data Demo:** Data simulasi hanya diisi secara terpisah di lingkungan **Proyek Demo** (F6) untuk keperluan pratinjau rekruter/reviewer tanpa memengaruhi alur kerja pengguna nyata.
+---
 
-## 3. Spesifikasi Fitur
+## 3. Matriks Fitur & Status Implementasi Aktual
 
-| Kode | Fitur | Prioritas | Deskripsi Singkat |
-| :--- | :--- | :--- | :--- |
-| F1 | Kantong Anggaran Fleksibel | **MVP** | Siklus harian/mingguan/bulanan (default mingguan), CRUD pemasukan dan alokasi per periode, CRUD kategori kantong, perhitungan *unallocated cash*, serta indikator status otomatis (`AMAN`, `HABIS`, `OVERBUDGET`). |
-| F2 | Ledger Transaksi | **MVP** | CRUD mutasi (tanggal, kode minggu otomatis ISO/Senin–Minggu, tipe, kategori, nominal, catatan) dengan form *quick-add* ramah jempol di HP. |
-| F3 | Pelacak Utang Dinamis | **MVP** | CRUD multi-utang, CRUD target bertahap opsional, penautan transaksi cicilan, penyesuaian pokok (*top-up*/koreksi), dan perhitungan sisa otomatis (detail di 3.1). |
-| F4 | Laporan Bulanan | v1.1 | Ringkasan pemasukan vs pengeluaran bulanan serta grafik distribusi pengeluaran per kategori. |
-| F5 | Autentikasi, Isolasi Data & Pengelolaan Akun | **MVP** | Login aman per pengguna, isolasi data menggunakan *Row Level Security* (RLS), reset pabrik, dan penghapusan akun terverifikasi. |
-| F6 | Mode Demo Portofolio | v1.1 | Akses langsung ke lingkungan demo berisi data simulasi netral tanpa perlu registrasi akun, terisolasi dari akun pengguna nyata. |
-| F7 | Ekspor CSV & Backup | v1.1 | Unduh seluruh data transaksi, kantong, dan riwayat utang dalam format CSV untuk arsip dan pencadangan. |
-| F8 | Dukungan PWA | **MVP** | Manifest dan *Service Worker* agar aplikasi dapat di-install ke *home screen* HP layaknya aplikasi native. |
+| Kode | Fitur | Status Aktual | Deskripsi Hasil Implementasi |
+| :--- | :--- | :---: | :--- |
+| **F1** | **Sistem Kantong Anggaran** | ✅ **Rilis** | Siklus Harian/Mingguan/Bulanan, CRUD pemasukan periode, CRUD alokasi kantong, kalkulasi *unallocated cash*, badge status (`AMAN`, `HABIS`, `OVERBUDGET`), dan grid responsif 1–3 kolom. |
+| **F2** | **Multi-Sumber Dana (Cash & E-Money)** | ✅ **Rilis** | Input uang tunai dan multi e-wallet dinamis (GoPay, OVO, DANA, BCA, dll). Hero Banner *Sisa Uang Tersedia* berukuran besar, kartu sisa saldo tunai & e-money, serta menu dropdown laporan sisa saldo per akun e-money lengkap dengan tombol "Gunakan". |
+| **F3** | **Ledger & Form Catat Cepat** | ✅ **Rilis** | Form *Quick-Add* (< 10 detik) dengan pemilihan tipe (Pengeluaran, Pemasukan, Cicilan), pemilihan sumber dana instan, penandaan format `[Sumber] Catatan`, serta badge sumber dana di riwayat transaksi. |
+| **F4** | **Pelacak Utang & Pinjaman** | ✅ **Rilis** | CRUD daftar utang, penyesuaian pokok (*top-up*/koreksi delta), penautan cicilan otomatis memotong sisa pokok, status `LUNAS` otomatis saat sisa $\le 0$, dan fitur arsip utang. |
+| **F5** | **Statistik & Analisis Arus Kas** | ✅ **Rilis** | Grafik batang komparatif pemasukan vs pengeluaran harian dengan skala proporsional, diagram distribusi per kategori, filter periode, dan tata letak 2 kolom di layar lebar. |
+| **F6** | **Autentikasi & Pengaturan Akun** | ✅ **Rilis** | Registrasi & Login email Supabase Auth, kartu profil pengguna dengan badge status aktif, kartu pemilihan siklus anggaran visual, reset anggaran periode, reset pabrik, dan hapus akun permanen. |
+| **F7** | **Desain Full Dark Black & Responsif** | ✅ **Rilis** | Palet OLED true black (`#000000`, `#09090b`), navigasi ganda adaptif (bottom nav di mobile, top nav di desktop), responsive grid lintas perangkat (HP, tablet, laptop/PC). |
+| **F8** | **Dukungan PWA (Progressive Web App)** | ✅ **Rilis** | Service Worker dan web manifest aktif melalui `vite-plugin-pwa` untuk instalasi *native-like* di Android, iOS, dan Desktop. |
+| **F9** | **Celengan Digital (Uang Sisa)** | ✅ **Rilis** | Fitur celengan fleksibel tanpa batas target; pengguna bebas memasukkan seluruh atau sebagian sisa uang, memotong saldo sumber dana terkait, mencatat riwayat akumulasi, dan menarik kembali dana sewaktu-waktu. |
 
-### 3.1 Detail F3: Pelacak Utang Dinamis
+---
 
-* **CRUD Multi-Utang:** Pengguna dapat menambah, mengubah, dan menghapus catatan utang kapan saja (nama pemberi pinjaman, nominal pokok, tanggal mulai, catatan).
-* **CRUD Target Bertahap Opsional (0..N):** Setiap utang dapat memiliki 0, 1, atau banyak target/milestone (nama target, nominal kumulatif, tenggat waktu). Target dapat ditambah, diedit, atau dihapus kapan saja meskipun cicilan sudah berjalan.
-* **Cicilan Berbasis Transaksi:** Pembayaran cicilan dicatat melalui *Ledger Transaksi* (F2) dan ditautkan ke `debt_id` tertentu. Total terbayar dan sisa utang dihitung otomatis dari agregasi transaksi tersebut.
-* **Status Utang:** `AKTIF`, `LUNAS` (otomatis berubah saat sisa utang $\le 0$), atau `DIARSIPKAN`. Utang yang `LUNAS` tetap tampil di riwayat dengan lencana status, dan dapat diarsipkan secara manual agar daftar utama tetap ringkas.
-* **Penambahan Utang & Top-Up:** Setelah utang lunas, pengguna bebas membuat utang baru atau menambahkan nominal ke utang yang sudah ada (*top-up* tercatat di tabel penyesuaian beserta alasannya) sehingga status otomatis kembali `AKTIF`.
-* **Fleksibilitas Kantong Cicilan:** Alokasi kantong cicilan di F1 tidak terikat mati pada satu utang. Setelah utang lunas, alokasi dana per periode dapat diubah atau dihapus, lalu dialihkan ke kantong lain (tabungan, dana darurat, dll.).
-* **Koreksi & Penghapusan Transaksi:** Jika terjadi kesalahan input cicilan, pengeditan atau penghapusan transaksi di ledger akan langsung menghitung ulang sisa utang dan progres target secara *real-time*.
-* **Saran Cicilan Mingguan (v1.1):** Kalkulasi opsional berupa $\text{Sisa Utang} \div \text{Sisa Minggu Menuju Tenggat}$ sebagai referensi alokasi mingguan.
+## 4. Arsitektur Teknis & Database
 
-## 4. Arsitektur & Desain Database
+### 4.1 Stack Teknologi Terpasang
+* **Frontend**: React 18.3, TypeScript 5.7, Vite 6.2.
+* **Styling & UI**: Tailwind CSS 3.4 (Full Dark Black / OLED Palette), Lucide React (Ikon modern).
+* **Manajemen Tanggal**: date-fns 4.1 (dengan lokal bahasa Indonesia `id`).
+* **Backend & Database**: Supabase (PostgreSQL 15+, Supabase Auth, Row Level Security).
+* **PWA**: `vite-plugin-pwa` 0.21.
+* **Hosting**: Vercel (Continuous Deployment dari repositori GitHub).
 
-### 4.1 Stack Teknologi (Terkunci)
-
-* **Frontend:** React + TypeScript + Vite, Tailwind CSS, dan `vite-plugin-pwa`.
-* **Backend / Database / Auth:** Supabase (PostgreSQL, Supabase Auth, Auto-generated REST API, Row Level Security).
-* **Hosting & CI/CD:** Vercel (Hobby Plan) terhubung langsung ke repositori GitHub.
-* **Pemisahan Lingkungan:** Menggunakan **dua proyek Supabase terpisah** — Proyek A untuk aplikasi utama (pengguna nyata dengan akun bersih), dan Proyek B khusus untuk *Mode Demo* portofolio dengan data simulasi.
-
-### 4.2 Skema Database Relasional
-
+### 4.2 Skema Tabel Relasional Aktual
 ```sql
--- Master kategori kantong & pengeluaran (user-defined CRUD)
-categories (id, user_id, name, type, is_active, created_at)
+-- 1. Kategori Kantong & Pos Pengeluaran
+categories (
+    id UUID PRIMARY KEY,
+    user_id UUID NOT NULL,
+    name TEXT NOT NULL,
+    type TEXT NOT NULL CHECK (type IN ('EXPENSE', 'DEBT_PAYMENT', 'SAVINGS')),
+    color TEXT,
+    icon TEXT,
+    is_active BOOLEAN DEFAULT true,
+    created_at TIMESTAMPTZ DEFAULT now()
+)
 
--- Header anggaran per siklus (period_type: daily/weekly/monthly)
-weekly_budgets (id, user_id, week_start, period_type, income, note, created_at)
+-- 2. Header Anggaran per Siklus (Menyimpan Total Pemasukan & Rincian Sumber Dana)
+weekly_budgets (
+    id UUID PRIMARY KEY,
+    user_id UUID NOT NULL,
+    week_start DATE NOT NULL,
+    period_type TEXT NOT NULL DEFAULT 'weekly' CHECK (period_type IN ('daily', 'weekly', 'monthly')),
+    income NUMERIC(14, 2) NOT NULL DEFAULT 0,
+    note TEXT, -- Menyimpan JSON breakdown: {"version":1, "cash":number, "emoney":[{"id","name","amount"}]}
+    created_at TIMESTAMPTZ DEFAULT now(),
+    CONSTRAINT weekly_budgets_user_period_unique UNIQUE (user_id, period_type, week_start)
+)
 
--- Preferensi siklus anggaran per pengguna (default mingguan)
-user_settings (user_id, budget_period_type)
+-- 3. Preferensi Siklus Anggaran per Pengguna
+user_settings (
+    user_id UUID PRIMARY KEY,
+    budget_period_type TEXT NOT NULL DEFAULT 'weekly' CHECK (budget_period_type IN ('daily', 'weekly', 'monthly'))
+)
 
--- Alokasi dana per kategori dalam satu siklus
-envelopes (id, user_id, weekly_budget_id, category_id, allocated)
+-- 4. Alokasi Kantong Anggaran dalam Satu Siklus
+envelopes (
+    id UUID PRIMARY KEY,
+    user_id UUID NOT NULL,
+    weekly_budget_id UUID NOT NULL REFERENCES weekly_budgets(id) ON DELETE CASCADE,
+    category_id UUID NOT NULL REFERENCES categories(id) ON DELETE CASCADE,
+    allocated NUMERIC(14, 2) NOT NULL DEFAULT 0,
+    created_at TIMESTAMPTZ DEFAULT now(),
+    CONSTRAINT envelopes_budget_category_unique UNIQUE (weekly_budget_id, category_id)
+)
 
--- Buku besar seluruh transaksi (pengeluaran, pemasukan tambahan, & cicilan utang)
-transactions (id, user_id, date, week_code, type, category_id, debt_id, amount, note, created_at)
+-- 5. Buku Besar Transaksi (Ledger)
+transactions (
+    id UUID PRIMARY KEY,
+    user_id UUID NOT NULL,
+    date DATE NOT NULL DEFAULT CURRENT_DATE,
+    week_code TEXT NOT NULL,
+    type TEXT NOT NULL CHECK (type IN ('EXPENSE', 'INCOME', 'DEBT_PAYMENT')),
+    category_id UUID REFERENCES categories(id) ON DELETE SET NULL,
+    debt_id UUID REFERENCES debts(id) ON DELETE SET NULL,
+    amount NUMERIC(14, 2) NOT NULL,
+    note TEXT, -- Format: "[SumberDana] Catatan"
+    created_at TIMESTAMPTZ DEFAULT now()
+)
 
--- Header daftar utang
-debts (id, user_id, creditor, principal, start_date, is_archived, note, created_at)
+-- 6. Header Pinjaman / Utang
+debts (
+    id UUID PRIMARY KEY,
+    user_id UUID NOT NULL,
+    creditor TEXT NOT NULL,
+    principal NUMERIC(14, 2) NOT NULL,
+    start_date DATE NOT NULL,
+    is_archived BOOLEAN DEFAULT false,
+    note TEXT,
+    created_at TIMESTAMPTZ DEFAULT now()
+)
 
--- Riwayat penambahan (top-up) atau koreksi pokok utang
-debt_adjustments (id, user_id, debt_id, date, delta, reason, created_at)
-
--- Target pelunasan bertahap (0..n per utang)
-debt_targets (id, user_id, debt_id, name, target_amount, deadline)
+-- 7. Penyesuaian Pokok Utang (Top-Up / Koreksi)
+debt_adjustments (
+    id UUID PRIMARY KEY,
+    user_id UUID NOT NULL,
+    debt_id UUID NOT NULL REFERENCES debts(id) ON DELETE CASCADE,
+    date DATE NOT NULL DEFAULT CURRENT_DATE,
+    delta NUMERIC(14, 2) NOT NULL,
+    reason TEXT NOT NULL,
+    created_at TIMESTAMPTZ DEFAULT now()
+)
 ```
 
-### 4.3 Prinsip *Single Source of Truth* (SQL Views)
+### 4.3 Logika Perhitungan Dinamis (*Single Source of Truth*)
+1. **Status & Sisa Kantong (`v_envelope_status`)**:
+   $$\text{spent} = \sum_{\text{transaksi}} \text{amount}$$
+   $$\text{remaining} = \text{allocated} - \text{spent}$$
+   $$\text{status} = \begin{cases} \text{OVERBUDGET}, & \text{jika } \text{spent} > \text{allocated} \\ \text{HABIS}, & \text{jika } \text{spent} = \text{allocated} \land \text{allocated} > 0 \\ \text{AMAN}, & \text{lainnya} \end{cases}$$
 
-Status kantong, sisa alokasi (*unallocated cash*), total terbayar, sisa utang, status `LUNAS`, dan persentase progres target **tidak disimpan sebagai kolom statis**, melainkan dihitung secara dinamis melalui **PostgreSQL Views**:
+2. **Ringkasan Anggaran (`v_weekly_budget_summary`)**:
+   $$\text{unallocated\_cash} = \text{income} - \sum \text{allocated}$$
+   $$\text{net\_balance} = \text{income} - \sum \text{spent}$$
 
-* $\text{Sisa Kantong} = \text{allocated} - \sum \text{transactions.amount}$
-* $\text{Sisa Utang} = \text{principal} + \sum \text{debt\_adjustments.delta} - \sum \text{transactions.amount (cicilan)}$
+3. **Pelunasan Utang (`v_debt_summary`)**:
+   $$\text{effective\_principal} = \text{principal} + \sum \text{delta}$$
+   $$\text{remaining\_debt} = \text{effective\_principal} - \sum \text{cicilan}$$
+   $$\text{status} = \begin{cases} \text{LUNAS}, & \text{jika } \text{remaining\_debt} \le 0 \\ \text{AKTIF}, & \text{lainnya} \end{cases}$$
 
-## 5. Kebutuhan Non-Fungsional
+4. **Sisa Saldo Kas & E-Money (Aplikasi Runtime)**:
+   - $\text{Sisa Cash} = \text{Cash Awal} - \sum \text{Transaksi Tunai}$
+   - $\text{Sisa Akun E-Money}_i = \text{Saldo Awal}_i - \sum \text{Transaksi via Akun}_i$
+   - $\text{Total Sisa Uang Tersedia} = \text{Sisa Cash} + \sum \text{Sisa Semua E-Money}$
 
-* **Biaya:** Rp 0 menggunakan *free tier* Supabase dan Vercel. Pemantauan kapasitas database dilakukan secara berkala (batas 500 MB/proyek).
-* **Keamanan:** Kebijakan *Row Level Security* (RLS) wajib aktif di seluruh tabel dengan aturan ketat `user_id = auth.uid()`. Hanya *Supabase Anon Key* publik yang diekspos di frontend.
-* **Ketersediaan (*Availability*):** Proyek utama aktif secara berkala melalui penggunaan harian. Proyek demo dilengkapi penjadwalan *keep-alive* (GitHub Actions cron setiap 3 hari) agar database tetap aktif saat diakses rekruter/reviewer.
-* **Pencadangan (*Backup*):** Ekspor data manual ke CSV dilakukan minimal satu kali setiap akhir bulan sebagai mitigasi tidak adanya fitur *automated daily backup* pada paket gratis.
-* **Performa & UX:** Antarmuka dioptimalkan untuk layar ponsel (*mobile-first*) dengan *empty state* yang informatif bagi pengguna baru dan input transaksi rutin di bawah 10 detik.
+---
 
-## 6. Rencana Tahapan Eksekusi
+## 5. Kebutuhan Non-Fungsional (Tercapai)
 
-| Fase | Periode | Target Luaran (*Deliverables*) |
-| :--- | :--- | :--- |
-| **0. Jembatan Data** | 17 – 23 Nov 2026 | Google Form + Google Sheets sederhana agar pencatatan minggu pertama (mulai 23 Nov) langsung berjalan tanpa menunggu aplikasi selesai. |
-| **1. Fondasi & DB** | Minggu 1 – 2 | Setup repositori React + Vite, inisialisasi 2 proyek Supabase, pembuatan tabel, *SQL Views*, kebijakan RLS, Autentikasi, dan CRUD Kategori. |
-| **2. MVP & Migrasi** | Minggu 3 – 4 | Fitur Kantong Mingguan (F1), Ledger Transaksi cepat (F2), Pelacak Utang Dinamis (F3), konfigurasi PWA (F8), dan impor data dari Google Sheets. |
-| **3. Pemakaian Nyata** | Desember 2026 | Penggunaan harian secara penuh, perbaikan *bug* UX di ponsel, dan penyempurnaan alur CRUD. |
-| **4. Rilis Portofolio** | Januari 2027 | Penambahan Laporan Bulanan (F4), Mode Demo dengan data simulasi netral (F6), Ekspor CSV (F7), penyusunan `README.md`, diagram ERD, dan tangkapan layar. |
+* **Biaya Operasional**: **Rp 0** (Memanfaatkan paket gratis permanen Supabase dan Vercel).
+* **Performa Input**: Form *Quick Add* dapat diakses dan disimpan dalam waktu rata-rata $\le 8$ detik dari perangkat mobile.
+* **Keamanan Data**: Seluruh tabel dilindungi *Row Level Security* (RLS). Pengguna hanya dapat membaca dan menulis datanya sendiri.
+* **Pengalaman Lintas Perangkat**: Nyaman digunakan pada layar smartphone (360px–430px), tablet (768px–1024px), maupun monitor desktop/laptop (> 1200px).
+* **PWA Offline Shell**: Shell aplikasi dapat dibuka langsung dari *home screen* ponsel layaknya aplikasi native.
 
-## 7. Kriteria Keberhasilan
+---
 
-1. **Integritas & Dinamika Data:** Pengguna baru memulai dari keadaan bersih (*blank slate*) dan dapat melakukan CRUD penuh pada kategori, pemasukan mingguan, kantong, transaksi, serta utang tanpa kendala.
-2. **Akurasi Kalkulasi:** Saldo sisa kantong dan sisa utang pada *SQL Views* 100% cocok dengan perhitungan manual setelah operasi tambah, ubah, maupun hapus data.
-3. **Kesiapan Portofolio:** Tautan demo di Vercel dapat diakses publik tanpa error dengan data simulasi netral, lengkap dengan dokumentasi arsitektur di GitHub.
-4. **Pengalaman Pengguna:** Seluruh alur pencatatan di perangkat mobile berjalan responsif dan memenuhi target waktu input < 10 detik.
+## 6. Riwayat Perubahan Desain (Design Decision Log)
 
-## 8. Manajemen Risiko
-
-| Risiko | Dampak | Rencana Mitigasi |
-| :--- | :--- | :--- |
-| Aplikasi belum siap saat 23 Nov 2026 | Data transaksi minggu pertama hilang | Menggunakan Google Form + Sheets pada Fase 0 lalu diimpor saat MVP siap. |
-| Proyek Demo Supabase ter-*pause* | Reviewer portofolio mendapati error saat membuka demo | Menjalankan *cron job* ringan via GitHub Actions setiap 3 hari untuk menjaga koneksi tetap aktif. |
-| Kebocoran data pribadi di demo | Privasi keuangan pribadi terekspos | Memisahkan sepenuhnya proyek Supabase utama dan proyek Supabase demo (berisi data simulasi umum). |
-| *Scope creep* (fitur melebar) | MVP tertunda akibat tugas kuliah | Mengunci ruang lingkup MVP hanya pada F1, F2, F3, F5, dan F8; menunda F4, F6, dan F7 ke v1.1. |
-
-## 9. Keputusan Desain Terkunci (Log Keputusan)
-
-1. **Frontend:** React + TypeScript + Vite (ekosistem luas, dukungan `vite-plugin-pwa` stabil, dan nilai jual tinggi di portofolio).
-2. **Backend & Hosting:** Supabase (PostgreSQL + Auth + RLS) dan Vercel Hobby.
-3. **Model Kepemilikan & Inisialisasi Data:** Multi-tenant ready (`user_id` di setiap tabel dengan RLS aktif) dengan status awal kosong (*blank slate*) dan CRUD penuh agar relevan bagi pengguna mana pun.
-4. **Perilaku Sisa Dana Mingguan:** Dana tidak terpakai tetap tercatat sebagai surplus minggu berjalan (*unspent balance*), sementara minggu baru dimulai dengan alokasi segar berdasarkan pemasukan minggu tersebut.
-5. **Tampilan Utang Lunas:** Tetap ditampilkan dalam daftar dengan status `LUNAS` beserta indikator visual penuh (100%), dengan opsi tombol "Arsipkan" agar pengguna dapat merapikan tampilan kapan saja.
-6. **Indikator Tenggat Target:** Ditampilkan melalui indikator warna dan sisa hari/minggu di kartu target pada antarmuka aplikasi (tanpa *push notification* kompleks agar menjaga arsitektur tetap ringan dan gratis).
+1. **Migrasi Tema ke Full Dark Black (OLED)**: Mengganti warna *slate* (yang memiliki bias warna kebiruan) menjadi *True Pitch Black* (`#000000`) dan *Neutral Charcoal* (`#09090b`) untuk kenyamanan mata di malam hari dan efisiensi baterai layar OLED.
+2. **Navigasi Adaptif Ganda**: Menghilangkan *bottom navigation bar* pada layar desktop dan memindahkannya ke *top header bar*, sehingga ruang vertikal layar laptop/PC tidak terbuang sia-sia.
+3. **Pemisahan Sumber Dana Tunai & Multi E-Money**: Menambahkan kalkulator sumber dana di modal pemasukan dan pelacakan transaksi spesifik sumber dana menggunakan format tag `[Sumber] Catatan` tanpa perlu mengubah skema tabel Supabase yang berisiko *breaking change*.
+4. **Hero Banner Sisa Uang**: Mengubah hierarki visual kartu anggaran utama agar angka sisa uang aktif yang siap dibelanjakan menjadi sorotan utama pengguna.
+5. **Pembaruan Halaman Setelan**: Mengganti dropdown kaku dengan kartu pilihan siklus anggaran visual interaktif, merapikan profil pengguna, dan memisahkan zona bahaya dengan konfirmasi *inline* yang aman.

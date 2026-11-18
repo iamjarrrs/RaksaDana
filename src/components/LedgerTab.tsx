@@ -2,6 +2,7 @@ import { type FC } from 'react';
 import { ReceiptText, Trash2, TrendingDown, TrendingUp, CreditCard, Banknote, Smartphone } from 'lucide-react';
 import { Transaction, Category, Debt } from '../types/database';
 import { formatRupiah, DataService, parseTransactionNote } from '../services/dataService';
+import { useConfirm } from '../contexts/ConfirmContext';
 import { format } from 'date-fns';
 
 interface LedgerTabProps {
@@ -19,8 +20,18 @@ export const LedgerTab: FC<LedgerTabProps> = ({
   onRefresh,
   onOpenQuickAdd,
 }) => {
+  const confirm = useConfirm();
+
   const handleDelete = async (id: string) => {
-    if (!window.confirm('Hapus transaksi ini? Saldo kantong dan sisa utang akan otomatis dihitung ulang.')) return;
+    const confirmed = await confirm({
+      title: 'Hapus Transaksi',
+      message: 'Hapus transaksi ini? Saldo kantong anggaran dan saldo sumber dana akan otomatis disesuaikan kembali.',
+      confirmText: 'Ya, Hapus',
+      cancelText: 'Batal',
+      variant: 'danger',
+    });
+    if (!confirmed) return;
+
     try {
       await DataService.deleteTransaction(id);
       onRefresh();
